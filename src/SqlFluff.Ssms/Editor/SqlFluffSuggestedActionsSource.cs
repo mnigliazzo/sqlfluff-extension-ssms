@@ -20,9 +20,20 @@ namespace SqlFluff.Ssms.Editor
     [ContentType("text")]
     internal sealed class SqlFluffSuggestedActionsSourceProvider : ISuggestedActionsSourceProvider
     {
+        [Import]
+        private ITextDocumentFactoryService Documents { get; set; }
+
         public ISuggestedActionsSource CreateSuggestedActionsSource(ITextView textView, ITextBuffer textBuffer)
         {
             if (textView == null || textBuffer == null || textView.TextBuffer != textBuffer)
+            {
+                return null;
+            }
+
+            // "text" is the broadest content type MEF offers; without SSMS's own SQL content type
+            // name to target precisely, filter here so the Light Bulb doesn't offer SQL fixes in
+            // every text editor.
+            if (!SqlBufferHeuristics.IsLikelySql(textBuffer, Documents))
             {
                 return null;
             }

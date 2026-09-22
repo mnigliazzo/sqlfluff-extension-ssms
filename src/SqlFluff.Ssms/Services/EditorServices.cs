@@ -112,7 +112,9 @@ namespace SqlFluff.Ssms.Services
             return _documents.TryGetTextDocument(buffer, out ITextDocument document) ? document.FilePath : null;
         }
 
-        private static bool IsSql(ITextBuffer buffer, string path)
+        // path is accepted for backward compatibility with existing call sites, which already
+        // resolve it; the actual check also has its own fallback via _documents.
+        private bool IsSql(ITextBuffer buffer, string path)
         {
             if (!string.IsNullOrEmpty(path) &&
                 string.Equals(SafeExtension(path), ".sql", StringComparison.OrdinalIgnoreCase))
@@ -120,7 +122,7 @@ namespace SqlFluff.Ssms.Services
                 return true;
             }
 
-            return buffer.ContentType.TypeName.IndexOf("sql", StringComparison.OrdinalIgnoreCase) >= 0;
+            return Editor.SqlBufferHeuristics.IsLikelySql(buffer, _documents);
         }
 
         private static string SafeExtension(string path)

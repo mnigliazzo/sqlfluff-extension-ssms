@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and ver
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-22
+
+### Fixed
+
+- The squiggle tagger and Light Bulb ("Fix with SQLFluff" / "Format with SQLFluff") were registered against the generic `text` MEF content type, since SSMS doesn't expose a documented, stable SQL-specific one to target precisely. That meant they could in principle activate in any text editor, not just SQL query windows. Added a runtime check (file extension `.sql`, falling back to the buffer's content type name containing "sql") so both only activate for actual SQL buffers.
+
 ## [1.2.0] - 2026-09-22
 
 ### Added
@@ -38,7 +44,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and ver
 - Auto-detection of the `sqlfluff` executable from PATH, common Python `Scripts` directories, or `py -m sqlfluff`.
 - Toolbar, context menu, and keyboard shortcuts (`Ctrl+K, Ctrl+Shift+L` for Lint, `Ctrl+K, Ctrl+Shift+F` for Fix).
 
-[Unreleased]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/releases/tag/v1.0.0

@@ -15,8 +15,18 @@ namespace SqlFluff.Ssms.Editor
     [TagType(typeof(IErrorTag))]
     internal sealed class SqlFluffTaggerProvider : ITaggerProvider
     {
+        [Import]
+        private ITextDocumentFactoryService Documents { get; set; }
+
         public ITagger<T> CreateTagger<T>(ITextBuffer buffer) where T : ITag
         {
+            // "text" is the broadest content type MEF offers; without SSMS's own SQL content type
+            // name to target precisely, filter here so squiggles don't show up in every text editor.
+            if (!SqlBufferHeuristics.IsLikelySql(buffer, Documents))
+            {
+                return null;
+            }
+
             return buffer.Properties.GetOrCreateSingletonProperty(
                 typeof(SqlFluffTagger), () => new SqlFluffTagger(buffer)) as ITagger<T>;
         }

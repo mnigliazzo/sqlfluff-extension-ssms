@@ -1,11 +1,19 @@
 # SQLFluff for SSMS
 
+[![Build](https://github.com/mnigliazzo/sqlfluff-extension-ssms/actions/workflows/build.yml/badge.svg)](https://github.com/mnigliazzo/sqlfluff-extension-ssms/actions/workflows/build.yml)
+[![Release](https://github.com/mnigliazzo/sqlfluff-extension-ssms/actions/workflows/release.yml/badge.svg)](https://github.com/mnigliazzo/sqlfluff-extension-ssms/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/mnigliazzo/sqlfluff-extension-ssms)](https://github.com/mnigliazzo/sqlfluff-extension-ssms/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management Studio 22.
 
 ## Features
 
 - **Lint on save/open**: Diagnostics in Error List with squiggles in the editor
-- **Auto-fix**: Format or fix violations with one keystroke  
+- **Fix**: Apply all of SQLFluff's fixable rules to the selection or document
+- **Format**: Apply only SQLFluff's safe, stable subset of rules (like a formatter, not a full auto-fixer)
+- **Light Bulb integration**: Fix/Format available as quick actions (`Alt+.`) directly on a squiggle
+- **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect
 
@@ -32,15 +40,17 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 
 **Tools > SQLFluff**:
 - **Lint Document** — Check and show issues
-- **Fix / Format** — Apply fixes to selection or document
+- **Fix** — Apply all fixable rules to the selection or document
+- **Format** — Apply only the safe, stable subset of rules to the selection or document
 - **Clear Diagnostics** — Remove diagnostics
 - **Options** — Configure the extension
 
 **Keyboard**:
 - `Ctrl+K, Ctrl+Shift+L` — Lint
 - `Ctrl+K, Ctrl+Shift+F` — Fix
+- `Ctrl+K, Ctrl+Shift+D` — Format
 
-**Right-click editor** for quick Lint/Fix.
+**Right-click editor** for quick Lint/Fix/Format, or click the light bulb (`Alt+.`) on a squiggle for a quick action.
 
 ## Configuration
 
@@ -50,9 +60,12 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 |---------|---------|
 | Executable | `sqlfluff` (auto-detect) |
 | Dialect | `tsql` |
+| Timeout | 60 seconds |
+| Auto-save after fix | ✗ (Fix/Format leave the document dirty; you save manually) |
 | Lint on open | ✓ |
 | Lint on save | ✓ |
 | Lint while typing | ✗ |
+| Report violations as | Warning |
 
 ## Building
 
