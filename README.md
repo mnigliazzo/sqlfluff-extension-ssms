@@ -82,16 +82,21 @@ All contributors are expected to follow the [Code of Conduct](/.github/CODE_OF_C
 
 ## Changelog
 
-All releases are published on the [Releases page](../../releases). Each release includes:
-- The compiled VSIX extension
-- Release notes with installation instructions
-- Change summary
+See [CHANGELOG.md](CHANGELOG.md) for the full history of changes. All releases are also published on the [Releases page](../../releases), each with the compiled VSIX attached.
 
 ### Release Process
 
-1. Update the version in `src\SqlFluff.Ssms\Properties\AssemblyInfo.cs`
-2. Commit and push to `main`
-3. An automated workflow creates a GitHub Release with the VSIX artifact
+The VSIX is never built or committed by hand — it's always produced by the CI pipeline, straight from a clean checkout of `main`.
+
+1. Open a feature branch and PR as described above.
+2. As part of that PR (or a dedicated follow-up), add an entry to `CHANGELOG.md` under `## [Unreleased]` and bump the version in both:
+   - `src\SqlFluff.Ssms\Properties\AssemblyInfo.cs` (`AssemblyVersion` / `AssemblyFileVersion`)
+   - `src\SqlFluff.Ssms\source.extension.vsixmanifest` (`Identity Version`)
+3. Merge the PR to `main`.
+4. On push to `main`, the **build** workflow compiles and sanity-checks the VSIX, and the **release** workflow:
+   - Skips silently if a release for that version's tag (`vX.Y.Z`) already exists (so pushes that don't bump the version don't create duplicate releases)
+   - Otherwise extracts that version's section from `CHANGELOG.md` as the release notes
+   - Creates a GitHub Release tagged `vX.Y.Z` with the freshly built `SqlFluff.Ssms.vsix` attached
 
 ## Support & Feedback
 

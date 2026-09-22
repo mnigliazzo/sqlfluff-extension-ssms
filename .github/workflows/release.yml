@@ -32,30 +32,67 @@ jobs:
     - name: Extract Version
       id: version
       run: |
-        [xml]$xml = Get-Content src/SqlFluff.Ssms/Properties/AssemblyInfo.cs
-        $ver = Select-String 'AssemblyVersion\("([^"]+)"\)' src/SqlFluff.Ssms/Properties/AssemblyInfo.cs | % { $_.Matches[0].Groups[1].Value }
+        $raw = Select-String 'AssemblyVersion\("([^"]+)"\)' src/SqlFluff.Ssms/Properties/AssemblyInfo.cs | % { $_.Matches[0].Groups[1].Value }
+        $parts = $raw.Split('.')
+        $ver = "$($parts[0]).$($parts[1]).$($parts[2])"
         Write-Output "version=$ver" >> $env:GITHUB_OUTPUT
-        Write-Output "Version: $ver"
+        Write-Output "Version: $ver (from AssemblyVersion $raw)"
       shell: pwsh
-    
+
+    - name: Check tag doesn't already exist
+      id: tagcheck
+      run: |
+        git fetch --tags
+        $exists = (git tag -l "v${{ steps.version.outputs.version }}") -ne ""
+        Write-Output "exists=$exists" >> $env:GITHUB_OUTPUT
+        if ($exists) {
+          Write-Warning "Tag v${{ steps.version.outputs.version }} already exists. Bump the version in AssemblyInfo.cs to publish a new release."
+        }
+      shell: pwsh
+
+    - name: Extract Release Notes from CHANGELOG
+      id: notes
+      if: steps.tagcheck.outputs.exists == 'False'
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        $lines = Get-Content CHANGELOG.md
+        $start = ($lines | Select-String "^## \[$([regex]::Escape($version))\]").LineNumber
+        if (-not $start) {
+          Write-Warning "No CHANGELOG section found for [$version]; falling back to a generic body."
+          Write-Output "notes=" >> $env:GITHUB_OUTPUT
+        } else {
+          $rest = $lines[$start..($lines.Count - 1)]
+          $endOffset = ($rest | Select-Object -Skip 1 | Select-String "^## \[").LineNumber
+          $section = if ($endOffset) { $rest[1..($endOffset - 1)] } else { $rest[1..($rest.Count - 1)] }
+          $body = ($section -join "`n").Trim()
+          $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<$delimiter"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $body
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $delimiter
+        }
+      shell: pwsh
+
     - name: Create Release
+      if: steps.tagcheck.outputs.exists == 'False'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ steps.version.outputs.version }}
-        name: Release v${{ steps.version.outputs.version }}
+        name: v${{ steps.version.outputs.version }}
         body: |
-          SQLFluff extension for SSMS 22
-          
+          ${{ steps.notes.outputs.notes }}
+
+          ---
+
           **Installation**:
-          1. Download `SqlFluff.Ssms.vsix`
+          1. Download `SqlFluff.Ssms.vsix` below
           2. Double-click to install, or run: `VSIXInstaller.exe SqlFluff.Ssms.vsix`
           3. Restart SSMS
-          
+
           **Requirements**:
           - SSMS 22.x
           - Python 3.7+ with SQLFluff: `pip install sqlfluff`
-          
-          See [README](../../README.md) for usage and configuration.
+
+          See the [README](https://github.com/${{ github.repository }}#readme) and [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
         files: src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
         draft: false
         prerelease: false
