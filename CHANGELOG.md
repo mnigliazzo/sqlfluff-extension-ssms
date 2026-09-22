@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and ver
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-22
+
+### Added
+
+- **Auto-save after fix** option (Tools > Options > SQLFluff > General, off by default): when enabled, a successful Fix or Format saves the document automatically afterward, through the same Running Document Table path as `Ctrl+S`. When disabled (the default), behavior is unchanged and you save manually. Closes #2.
+
 ## [1.1.0] - 2026-09-22
 
 ### Added
@@ -32,6 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and ver
 - Auto-detection of the `sqlfluff` executable from PATH, common Python `Scripts` directories, or `py -m sqlfluff`.
 - Toolbar, context menu, and keyboard shortcuts (`Ctrl+K, Ctrl+Shift+L` for Lint, `Ctrl+K, Ctrl+Shift+F` for Fix).
 
-[Unreleased]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mnigliazzo/sqlfluff-extension-ssms/releases/tag/v1.0.0

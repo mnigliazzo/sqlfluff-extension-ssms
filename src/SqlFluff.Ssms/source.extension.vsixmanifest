@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="SqlFluff.Ssms.7c1e4b92-3a5d-4f08-b6e1-9d2a8c0f5e34" Version="1.1.0" Language="en-US" Publisher="Matias Nigliazzo" />
+    <Identity Id="SqlFluff.Ssms.7c1e4b92-3a5d-4f08-b6e1-9d2a8c0f5e34" Version="1.2.0" Language="en-US" Publisher="Matias Nigliazzo" />
     <DisplayName>SQLFluff for SSMS</DisplayName>
     <Description xml:space="preserve">Integrates the SQLFluff linter and formatter into SQL Server Management Studio 22: diagnostics in the Error List, squiggles in the query editor, and one-click fix. Requires SQLFluff installed locally (pip install sqlfluff).</Description>
     <Icon>Resources\Icon.png</Icon>

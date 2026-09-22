@@ -43,6 +43,11 @@ namespace SqlFluff.Ssms.Options
         [Description("Maximum time a SQLFluff run may take before it is cancelled.")]
         public int TimeoutSeconds { get; set; } = 60;
 
+        [Category(ExecutionCategory)]
+        [DisplayName("Auto-save after fix")]
+        [Description("Automatically save the document after Fix or Format successfully change it. When off (default), you save manually (Ctrl+S).")]
+        public bool AutoSaveAfterFix { get; set; } = false;
+
         [Category(TriggersCategory)]
         [DisplayName("Lint on open")]
         [Description("Lint a SQL document the first time it is shown.")]
@@ -89,6 +94,7 @@ namespace SqlFluff.Ssms.Options
                 LintOnType = LintOnType,
                 TypeDelayMs = System.Math.Max(300, TypeDelayMs),
                 Severity = (DiagnosticSeverity)(int)Severity,
+                AutoSaveAfterFix = AutoSaveAfterFix,
             };
         }
     }

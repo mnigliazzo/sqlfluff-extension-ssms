@@ -20,5 +20,6 @@ namespace SqlFluff.Ssms.Core
         public bool LintOnType { get; set; }
         public int TypeDelayMs { get; set; }
         public DiagnosticSeverity Severity { get; set; }
+        public bool AutoSaveAfterFix { get; set; }
     }
 }
