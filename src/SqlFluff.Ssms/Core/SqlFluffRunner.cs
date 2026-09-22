@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,7 +31,14 @@ namespace SqlFluff.Ssms.Core
                 throw new SqlFluffException(Describe(result));
             }
 
-            return ParseLintOutput(result.StdOut, result);
+            try
+            {
+                return LintJsonParser.Parse(result.StdOut);
+            }
+            catch (LintJsonParseException ex)
+            {
+                throw new SqlFluffException(ex.Message + StderrSuffix(result));
+            }
         }
 
         public static Task<string> FixAsync(
@@ -136,49 +141,6 @@ namespace SqlFluff.Ssms.Core
                 return "Could not start SQLFluff (" + launch.FileName + "): " + ex.Message +
                        ". Install it with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.";
             }
-        }
-
-        private static IReadOnlyList<LintViolation> ParseLintOutput(string stdout, ProcessResult result)
-        {
-            int start = stdout.IndexOf('[');
-            if (start < 0)
-            {
-                throw new SqlFluffException("Unexpected SQLFluff output (no JSON found)." + StderrSuffix(result));
-            }
-
-            List<LintFile> files;
-            try
-            {
-                var serializer = new DataContractJsonSerializer(typeof(List<LintFile>));
-                using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(stdout.Substring(start))))
-                {
-                    files = (List<LintFile>)serializer.ReadObject(ms);
-                }
-            }
-            catch (Exception ex) when (ex is SerializationException || ex is InvalidCastException || ex is FormatException)
-            {
-                throw new SqlFluffException("Could not parse SQLFluff JSON output: " + ex.Message);
-            }
-
-            var violations = new List<LintViolation>();
-            foreach (LintFile file in files ?? new List<LintFile>())
-            {
-                foreach (LintItem item in file.Violations ?? new List<LintItem>())
-                {
-                    violations.Add(new LintViolation
-                    {
-                        Code = item.Code ?? string.Empty,
-                        Name = item.Name,
-                        Description = item.Description ?? string.Empty,
-                        StartLine = Math.Max(1, item.StartLine ?? 1),
-                        StartColumn = Math.Max(1, item.StartColumn ?? 1),
-                        EndLine = item.EndLine ?? 0,
-                        EndColumn = item.EndColumn ?? 0,
-                    });
-                }
-            }
-
-            return violations;
         }
 
         private static async Task<ProcessResult> RunAsync(
@@ -292,40 +254,8 @@ namespace SqlFluff.Ssms.Core
         {
             if (!string.IsNullOrWhiteSpace(value))
             {
-                sb.Append(' ').Append(name).Append(' ').Append(Quote(value.Trim()));
+                sb.Append(' ').Append(name).Append(' ').Append(ArgumentQuoting.Quote(value.Trim()));
             }
-        }
-
-        // Windows command-line argument quoting (CommandLineToArgvW rules).
-        internal static string Quote(string arg)
-        {
-            if (arg.Length > 0 && arg.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0)
-            {
-                return arg;
-            }
-
-            var sb = new StringBuilder("\"");
-            int backslashes = 0;
-            foreach (char c in arg)
-            {
-                if (c == '\\')
-                {
-                    backslashes++;
-                }
-                else if (c == '"')
-                {
-                    sb.Append('\\', backslashes * 2 + 1).Append('"');
-                    backslashes = 0;
-                }
-                else
-                {
-                    sb.Append('\\', backslashes).Append(c);
-                    backslashes = 0;
-                }
-            }
-
-            sb.Append('\\', backslashes * 2).Append('"');
-            return sb.ToString();
         }
 
         private static string PickWorkingDirectory(string filePath)
@@ -520,25 +450,6 @@ namespace SqlFluff.Ssms.Core
             public int ExitCode { get; set; }
             public string StdOut { get; set; }
             public string StdErr { get; set; }
-        }
-
-        [DataContract]
-        private sealed class LintFile
-        {
-            [DataMember(Name = "violations")]
-            public List<LintItem> Violations { get; set; }
-        }
-
-        [DataContract]
-        private sealed class LintItem
-        {
-            [DataMember(Name = "code")] public string Code { get; set; }
-            [DataMember(Name = "name")] public string Name { get; set; }
-            [DataMember(Name = "description")] public string Description { get; set; }
-            [DataMember(Name = "start_line_no")] public int? StartLine { get; set; }
-            [DataMember(Name = "start_line_pos")] public int? StartColumn { get; set; }
-            [DataMember(Name = "end_line_no")] public int? EndLine { get; set; }
-            [DataMember(Name = "end_line_pos")] public int? EndColumn { get; set; }
         }
     }
 }

@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    # Pure unit tests on plain net8.0 — no VS SDK, no VSSDK.BuildTools, no MSBuild-with-SSMS
+    # needed, so this runs on any OS runner and doesn't share build.yml's setup.
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Test
+      run: dotnet test tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj --configuration Release --logger "console;verbosity=normal"
