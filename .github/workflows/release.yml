@@ -3,11 +3,12 @@ name: Release
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   release:
     runs-on: windows-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     
     steps:
     - uses: actions/checkout@v4
@@ -42,10 +43,14 @@ jobs:
       id: tagcheck
       run: |
         git fetch --tags
-        $exists = (git tag -l "v${{ steps.version.outputs.version }}") -ne ""
+        $tag = "v${{ steps.version.outputs.version }}"
+        git rev-parse -q --verify "refs/tags/$tag" *> $null
+        $exists = ($LASTEXITCODE -eq 0)
         Write-Output "exists=$exists" >> $env:GITHUB_OUTPUT
         if ($exists) {
-          Write-Warning "Tag v${{ steps.version.outputs.version }} already exists. Bump the version in AssemblyInfo.cs to publish a new release."
+          Write-Warning "Tag $tag already exists. Bump the version in AssemblyInfo.cs to publish a new release."
+        } else {
+          Write-Output "Tag $tag does not exist yet; will create a release."
         }
       shell: pwsh
 
