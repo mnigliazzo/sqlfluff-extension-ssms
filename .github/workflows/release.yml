@@ -4,6 +4,17 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump (auto = based on labels of closed issues in the Unreleased milestone)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
 
 jobs:
   release:
@@ -11,124 +22,172 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
-      issues: read
+      issues: write
 
     steps:
     - uses: actions/checkout@v7
       with:
         fetch-depth: 0
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v6
-      with:
-        dotnet-version: '8.0.x'
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v3
-
-    - name: Restore & Build
-      run: |
-        dotnet restore src/SqlFluff.Ssms/SqlFluff.Ssms.csproj
-        msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
-      shell: pwsh
-    
-    - name: Extract Version
+    # The version is never read from (or written back to) AssemblyInfo.cs/vsixmanifest in the
+    # repo — main's branch protection blocks direct pushes even from the Actions bot, so a
+    # workflow can't commit a version bump back to it without a human-reviewed PR. Instead, the
+    # version is computed here from the latest published release tag plus the labels of whatever
+    # issues are closed in the "Unreleased" milestone, and only ever exists as a git tag / GitHub
+    # Release — never depends on a maintainer remembering to bump a file by hand.
+    - name: Determine version and release notes
       id: version
-      run: |
-        $raw = Select-String 'AssemblyVersion\("([^"]+)"\)' src/SqlFluff.Ssms/Properties/AssemblyInfo.cs | % { $_.Matches[0].Groups[1].Value }
-        $parts = $raw.Split('.')
-        $ver = "$($parts[0]).$($parts[1]).$($parts[2])"
-        Write-Output "version=$ver" >> $env:GITHUB_OUTPUT
-        Write-Output "Version: $ver (from AssemblyVersion $raw)"
-      shell: pwsh
-
-    - name: Check tag doesn't already exist
-      id: tagcheck
-      run: |
-        git fetch --tags
-        $tag = "v${{ steps.version.outputs.version }}"
-        git rev-parse -q --verify "refs/tags/$tag" *> $null
-        $exists = ($LASTEXITCODE -eq 0)
-        Write-Output "exists=$exists" >> $env:GITHUB_OUTPUT
-        if ($exists) {
-          Write-Warning "Tag $tag already exists. Bump the version in AssemblyInfo.cs to publish a new release."
-        } else {
-          Write-Output "Tag $tag does not exist yet; will create a release."
-        }
-        # git rev-parse above intentionally exits non-zero when the tag doesn't exist (the
-        # common case) and that would otherwise be inherited as this step's own exit code.
-        exit 0
-      shell: pwsh
-
-    - name: Extract Release Notes from Milestone Issues
-      id: notes
-      if: steps.tagcheck.outputs.exists == 'False'
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        $version = "${{ steps.version.outputs.version }}"
         $repo = "${{ github.repository }}"
-        $milestoneTitle = "v$version"
 
-        # Release notes are sourced from closed issues in the milestone named "vX.Y.Z" (not from
-        # merged PRs), grouped by label the same way CHANGELOG.md's [Keep a Changelog] sections
-        # are: enhancement -> Added, bug -> Fixed, chore/documentation -> Changed, anything else
-        # -> Other. The milestone is expected to be renamed from "Unreleased" and closed as part
-        # of cutting the release (see CONTRIBUTING.md).
         $milestones = gh api "repos/$repo/milestones?state=all" | ConvertFrom-Json
-        $milestone = $milestones | Where-Object { $_.title -eq $milestoneTitle } | Select-Object -First 1
+        $milestone = $milestones | Where-Object { $_.title -eq "Unreleased" } | Select-Object -First 1
 
-        if (-not $milestone) {
-          Write-Warning "No milestone named '$milestoneTitle' found; release will have no linked-issues section."
-          $body = "_No linked issues for this release._"
-        } else {
+        $realIssues = @()
+        if ($milestone) {
           $issues = gh api "repos/$repo/issues?milestone=$($milestone.number)&state=closed&per_page=100" | ConvertFrom-Json
           $realIssues = @($issues | Where-Object { -not $_.pull_request })
+        } else {
+          Write-Warning "No 'Unreleased' milestone found."
+        }
 
-          if ($realIssues.Count -eq 0) {
-            $body = "_No linked issues for this release._"
-          } else {
-            $categories = [ordered]@{
-              "### Added"   = @()
-              "### Fixed"   = @()
-              "### Changed" = @()
-              "### Other"   = @()
-            }
-            foreach ($issue in $realIssues) {
-              $labelNames = @($issue.labels | ForEach-Object { $_.name })
-              $line = "- $($issue.title) (#$($issue.number))"
-              if ($labelNames -contains "enhancement") { $categories["### Added"] += $line }
-              elseif ($labelNames -contains "bug") { $categories["### Fixed"] += $line }
-              elseif ($labelNames -contains "chore" -or $labelNames -contains "documentation") { $categories["### Changed"] += $line }
-              else { $categories["### Other"] += $line }
-            }
+        $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
+        $hasWork = $realIssues.Count -gt 0
 
-            $sections = foreach ($key in $categories.Keys) {
-              if ($categories[$key].Count -gt 0) {
-                $key
-                $categories[$key]
-                ""
-              }
-            }
-            $body = ($sections -join "`n").Trim()
+        if (-not $hasWork -and -not $isManual) {
+          Write-Output "Nothing closed in the Unreleased milestone; nothing to release."
+          Write-Output "hasWork=false" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
+
+        # Bump type: an explicit workflow_dispatch input wins; otherwise "enhancement" on any
+        # closed issue means minor, anything else (bug/chore/documentation/none) means patch.
+        # There's no automatic "major" signal (no "breaking" label convention yet) — force it via
+        # the workflow_dispatch input when one is actually needed.
+        $bumpInput = "${{ github.event.inputs.bump }}"
+        if ([string]::IsNullOrEmpty($bumpInput) -or $bumpInput -eq "auto") {
+          $labelNames = @($realIssues | ForEach-Object { $_.labels } | ForEach-Object { $_.name })
+          $bumpType = if ($labelNames -contains "enhancement") { "minor" } else { "patch" }
+        } else {
+          $bumpType = $bumpInput
+        }
+
+        git fetch --tags --quiet
+        $tagVersions = git tag --list "v*" |
+          ForEach-Object { $_.TrimStart('v') } |
+          Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+          ForEach-Object { [version]$_ } |
+          Sort-Object -Descending
+        $current = if ($tagVersions) { $tagVersions[0] } else { [version]"0.0.0" }
+
+        $newVersion = switch ($bumpType) {
+          "major" { [version]::new($current.Major + 1, 0, 0) }
+          "minor" { [version]::new($current.Major, $current.Minor + 1, 0) }
+          default { [version]::new($current.Major, $current.Minor, $current.Build + 1) }
+        }
+        $version = "$($newVersion.Major).$($newVersion.Minor).$($newVersion.Build)"
+
+        $tag = "v$version"
+        git rev-parse -q --verify "refs/tags/$tag" *> $null
+        if ($LASTEXITCODE -eq 0) {
+          Write-Warning "Tag $tag already exists; nothing to release."
+          Write-Output "hasWork=false" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
+
+        Write-Output "Current: $current -> New: $version (bump: $bumpType, from $($realIssues.Count) closed issue(s))"
+
+        if ($realIssues.Count -eq 0) {
+          $body = "_No linked issues for this release._"
+        } else {
+          $categories = [ordered]@{
+            "### Added"   = @()
+            "### Fixed"   = @()
+            "### Changed" = @()
+            "### Other"   = @()
           }
+          foreach ($issue in $realIssues) {
+            $labelNames = @($issue.labels | ForEach-Object { $_.name })
+            $line = "- $($issue.title) (#$($issue.number))"
+            if ($labelNames -contains "enhancement") { $categories["### Added"] += $line }
+            elseif ($labelNames -contains "bug") { $categories["### Fixed"] += $line }
+            elseif ($labelNames -contains "chore" -or $labelNames -contains "documentation") { $categories["### Changed"] += $line }
+            else { $categories["### Other"] += $line }
+          }
+
+          $sections = foreach ($key in $categories.Keys) {
+            if ($categories[$key].Count -gt 0) {
+              $key
+              $categories[$key]
+              ""
+            }
+          }
+          $body = ($sections -join "`n").Trim()
+        }
+
+        Write-Output "hasWork=true" >> $env:GITHUB_OUTPUT
+        Write-Output "version=$version" >> $env:GITHUB_OUTPUT
+        if ($milestone) {
+          Write-Output "milestoneNumber=$($milestone.number)" >> $env:GITHUB_OUTPUT
         }
 
         $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
         Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<$delimiter"
         Add-Content -Path $env:GITHUB_OUTPUT -Value $body
         Add-Content -Path $env:GITHUB_OUTPUT -Value $delimiter
+
+        # `git rev-parse --verify` above intentionally exits non-zero in the common case (the tag
+        # doesn't exist yet); without this, that stale $LASTEXITCODE would otherwise be inherited
+        # as this step's own exit code and mark a successful run as failed.
         exit 0
       shell: pwsh
 
+    # Only patches the checked-out workspace for this build — never committed. Source stays at
+    # whatever version it was last manually set to; only tags/Releases carry the real version.
+    - name: Apply computed version to the build
+      if: steps.version.outputs.hasWork == 'true'
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+
+        $asmPath = "src/SqlFluff.Ssms/Properties/AssemblyInfo.cs"
+        (Get-Content $asmPath) `
+          -replace 'AssemblyVersion\("[^"]+"\)', "AssemblyVersion(`"$version.0`")" `
+          -replace 'AssemblyFileVersion\("[^"]+"\)', "AssemblyFileVersion(`"$version.0`")" |
+          Set-Content $asmPath
+
+        $manifestPath = "src/SqlFluff.Ssms/source.extension.vsixmanifest"
+        $manifest = Get-Content $manifestPath -Raw
+        $manifest = $manifest -replace '(<Identity[^>]*\sVersion=")[0-9.]+(")', "`${1}$version`$2"
+        Set-Content -Path $manifestPath -Value $manifest -NoNewline
+      shell: pwsh
+
+    - name: Setup .NET
+      if: steps.version.outputs.hasWork == 'true'
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSBuild
+      if: steps.version.outputs.hasWork == 'true'
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Restore & Build
+      if: steps.version.outputs.hasWork == 'true'
+      run: |
+        dotnet restore src/SqlFluff.Ssms/SqlFluff.Ssms.csproj
+        msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
+      shell: pwsh
+
     - name: Create Release
-      if: steps.tagcheck.outputs.exists == 'False'
+      if: steps.version.outputs.hasWork == 'true'
       uses: softprops/action-gh-release@v3
       with:
         tag_name: v${{ steps.version.outputs.version }}
         name: v${{ steps.version.outputs.version }}
         body: |
-          ${{ steps.notes.outputs.notes }}
+          ${{ steps.version.outputs.notes }}
 
           ---
 
@@ -147,3 +206,18 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Only rotated once the release above actually succeeded, so a failed build/release leaves
+    # "Unreleased" untouched (and this run's issues still count next time).
+    - name: Rotate the Unreleased milestone
+      if: steps.version.outputs.hasWork == 'true' && steps.version.outputs.milestoneNumber != ''
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $repo = "${{ github.repository }}"
+        $number = "${{ steps.version.outputs.milestoneNumber }}"
+        $version = "${{ steps.version.outputs.version }}"
+
+        gh api "repos/$repo/milestones/$number" -X PATCH -f title="v$version" -f state="closed" | Out-Null
+        gh api "repos/$repo/milestones" -X POST -f title="Unreleased" | Out-Null
+      shell: pwsh

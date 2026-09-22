@@ -111,18 +111,16 @@ Release notes live on the [Releases page](../../releases), each with the compile
 
 ### Release Process
 
-The VSIX is never built or committed by hand — it's always produced by the CI pipeline, straight from a clean checkout of `main`. Release notes come from closed Issues, not from the CHANGELOG or PR descriptions — see [CONTRIBUTING.md](CONTRIBUTING.md#issues-milestones--releases) for how to file an issue so it shows up correctly.
+Fully automatic — there's no manual version-bump or milestone-rename step. The VSIX is never built or committed by hand either; it's always produced by the CI pipeline, straight from a clean checkout of `main`. Release notes come from closed Issues, not from the CHANGELOG or PR descriptions — see [CONTRIBUTING.md](CONTRIBUTING.md#issues-milestones--releases) for how to file an issue so it shows up correctly.
 
 1. User-facing changes start as a GitHub Issue, assigned to the `Unreleased` [milestone](../../milestones), labeled `enhancement`/`bug`/etc.
 2. Branch, PR (referencing the issue, e.g. "Closes #12"), review, merge — as described above.
-3. When ready to cut a release: rename the `Unreleased` milestone to the target version (e.g. `v1.3.0`) and close it, then bump the version in both:
-   - `src\SqlFluff.Ssms\Properties\AssemblyInfo.cs` (`AssemblyVersion` / `AssemblyFileVersion`)
-   - `src\SqlFluff.Ssms\source.extension.vsixmanifest` (`Identity Version`)
-4. Merge that version bump to `main`. On push, the **build** workflow compiles and sanity-checks the VSIX, and the **release** workflow:
-   - Skips silently if a release for that version's tag (`vX.Y.Z`) already exists (so pushes that don't bump the version don't create duplicate releases)
-   - Looks up the milestone named `vX.Y.Z`, lists its closed issues grouped by label into Added/Fixed/Changed/Other, and uses that as the release notes
-   - Creates a GitHub Release tagged `vX.Y.Z` with the freshly built `SqlFluff.Ssms.vsix` attached
-5. Create a new `Unreleased` milestone for what comes next.
+3. Every push to `main` re-runs the **release** workflow, which:
+   - Does nothing if the `Unreleased` milestone has no closed issues (so a push with nothing user-facing just doesn't cut a release)
+   - Otherwise computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag (no file in the repo holds the version; `main`'s branch protection blocks the workflow from pushing a bump back to it anyway)
+   - Builds, groups the closed issues by label into Added/Fixed/Changed/Other, and publishes a GitHub Release tagged `vX.Y.Z` with the freshly built `SqlFluff.Ssms.vsix` attached
+   - Rotates `Unreleased` to `vX.Y.Z` (closed) and creates a fresh `Unreleased` for what comes next
+4. A `major` bump has no automatic signal — trigger the workflow manually ("Run workflow" on the Release workflow in the Actions tab) with its `bump` input set to `major` (or `minor`/`patch`) when one is actually needed.
 
 ## Support & Feedback
 
