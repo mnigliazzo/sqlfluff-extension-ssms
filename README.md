@@ -9,10 +9,12 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 
 ## Features
 
-- **Lint on save/open**: Diagnostics in Error List with squiggles in the editor
+- **Lint on save**: Diagnostics in Error List with squiggles in the editor (optionally also while typing)
+- **Lint**: Check the selection, or the whole document when nothing is selected
 - **Fix**: Apply all of SQLFluff's fixable rules to the selection or document
 - **Format**: Apply only SQLFluff's safe, stable subset of rules (like a formatter, not a full auto-fixer)
-- **Light Bulb integration**: Fix/Format available as quick actions (`Alt+.`) directly on a squiggle
+- **Folder-wide commands**: run Lint/Fix/Format across every `.sql` file under the open folder, not just the active document
+- **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" scoped to just that violation's rule, plus whole-document Fix/Format
 - **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect
@@ -39,10 +41,11 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 ## Usage
 
 **Tools > SQLFluff**:
-- **Lint Document** — Check and show issues
-- **Fix** — Apply all fixable rules to the selection or document
-- **Format** — Apply only the safe, stable subset of rules to the selection or document
+- **Lint (Selection or Document)** — Check and show issues in the selection, or the whole document
+- **Fix (Selection or Document)** — Apply all fixable rules to the selection or document
+- **Format (Selection or Document)** — Apply only the safe, stable subset of rules to the selection or document
 - **Clear Diagnostics** — Remove diagnostics
+- **Lint/Fix/Format All Files in Folder** — run against every `.sql` file under the open folder instead of just the active document (Fix/Format confirm before rewriting files on disk, and skip any file with unsaved editor changes)
 - **Options** — Configure the extension
 
 **Keyboard**:
@@ -50,7 +53,9 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - `Ctrl+K, Ctrl+Shift+F` — Fix
 - `Ctrl+K, Ctrl+Shift+D` — Format
 
-**Right-click editor** for quick Lint/Fix/Format, or click the light bulb (`Alt+.`) on a squiggle for a quick action.
+**Light bulb** (`Alt+.`) on a squiggle for quick actions, including a fix scoped to just that violation's rule.
+
+> The query editor's right-click context menu is SSMS's own custom menu, not extensible by third-party extensions — see [#27](../../issues/27) for why there's no right-click entry here.
 
 ## Configuration
 
