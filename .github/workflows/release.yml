@@ -52,6 +52,9 @@ jobs:
         } else {
           Write-Output "Tag $tag does not exist yet; will create a release."
         }
+        # git rev-parse above intentionally exits non-zero when the tag doesn't exist (the
+        # common case) and that would otherwise be inherited as this step's own exit code.
+        exit 0
       shell: pwsh
 
     - name: Extract Release Notes from CHANGELOG
