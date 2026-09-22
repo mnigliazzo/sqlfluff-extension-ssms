@@ -6,35 +6,29 @@ on:
   pull_request:
     branches: [ main ]
 
-env:
-  DOTNET_VERSION: '10.0.401'
-  MSBUILDSDK_PATHS: 'C:\Program Files\dotnet\sdk\10.0.401\Sdks'
-
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.401'
-    
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
     - name: Restore
       run: dotnet restore src/SqlFluff.Ssms/SqlFluff.Ssms.csproj
       shell: pwsh
-    
+
     - name: Build
-      run: |
-        $env:MSBuildSDKsPath = 'C:\Program Files\dotnet\sdk\10.0.401\Sdks'
-        $env:DOTNET_HOST_PATH = 'C:\Program Files\dotnet\dotnet.exe'
-        $env:DOTNET_ROOT = 'C:\Program Files\dotnet'
-        $msb = 'C:\Program Files\Microsoft SQL Server Management Studio 22\Release\MSBuild\Current\Bin\amd64\MSBuild.exe'
-        & $msb src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
+      run: msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
       shell: pwsh
-    
+
     - name: Check VSIX
       run: |
         $vsix = 'src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.vsix'
@@ -45,7 +39,7 @@ jobs:
         $size = (Get-Item $vsix).Length / 1KB
         Write-Output "✓ VSIX built: $size KB"
       shell: pwsh
-    
+
     - name: Check DLL and pkgdef
       run: |
         $dll = 'src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.dll'
@@ -61,7 +55,7 @@ jobs:
         Write-Output "✓ DLL: $(Get-Item $dll | % Length | % {$_ / 1KB} | % {'{0:F0}' -f $_}) KB"
         Write-Output "✓ pkgdef: OK"
       shell: pwsh
-    
+
     - name: Upload VSIX
       uses: actions/upload-artifact@v4
       with:
