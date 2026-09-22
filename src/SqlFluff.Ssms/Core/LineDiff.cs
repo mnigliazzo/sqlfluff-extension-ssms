@@ -110,7 +110,10 @@ namespace SqlFluff.Ssms.Core
         }
 
         // True when a 1-based original line number falls inside the hunk's original range, or —
-        // for a pure insertion (empty range) — sits exactly at the insertion point.
+        // for a pure insertion (empty range) — sits immediately before or after the insertion
+        // point. Both neighbors count because sqlfluff reports a violation's line differently
+        // depending on the rule: e.g. LT12 (missing trailing newline) reports the *last existing*
+        // line, even though the fix appends past it with no "following" line to anchor to.
         public static bool HunkTouchesLine(LineHunk hunk, int originalLine1Based)
         {
             int line0 = originalLine1Based - 1;
@@ -119,7 +122,7 @@ namespace SqlFluff.Ssms.Core
                 return line0 >= hunk.OriginalStart && line0 < hunk.OriginalEnd;
             }
 
-            return line0 == hunk.OriginalStart;
+            return line0 == hunk.OriginalStart || line0 == hunk.OriginalStart - 1;
         }
 
         // Reconstructs the line sequence keeping only the hunks `shouldApply` accepts; every other

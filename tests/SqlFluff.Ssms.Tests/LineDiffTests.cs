@@ -84,15 +84,41 @@ namespace SqlFluff.Ssms.Tests
         }
 
         [Fact]
-        public void HunkTouchesLine_AnchorsPureInsertionToTheFollowingOriginalLine()
+        public void HunkTouchesLine_AnchorsPureInsertionToEitherNeighboringOriginalLine()
         {
             string[] original = { "a", "c" };
             string[] rewritten = { "a", "b", "c" };
             LineHunk hunk = LineDiff.ComputeHunks(original, rewritten).Single();
 
-            // The insertion sits before original line 2 ("c"), so it's anchored there.
+            // The insertion sits between original lines 1 ("a") and 2 ("c") — either can anchor
+            // it, since sqlfluff reports a violation's line differently depending on the rule.
+            Assert.True(LineDiff.HunkTouchesLine(hunk, 1));
             Assert.True(LineDiff.HunkTouchesLine(hunk, 2));
-            Assert.False(LineDiff.HunkTouchesLine(hunk, 1));
+            Assert.False(LineDiff.HunkTouchesLine(hunk, 3));
+        }
+
+        [Fact]
+        public void HunkTouchesLine_AnchorsAppendPastEndOfFileToTheLastExistingLine()
+        {
+            // Mirrors LT12 (missing trailing newline): the fix appends past the last line, so
+            // there's no "following" original line to anchor to — only the preceding one.
+            string[] original = { "SELECT 1" };
+            string[] rewritten = { "SELECT 1", "" };
+            LineHunk hunk = LineDiff.ComputeHunks(original, rewritten).Single();
+
+            Assert.True(LineDiff.HunkTouchesLine(hunk, 1));
+        }
+
+        [Fact]
+        public void ApplySelectedHunks_AppendsTrailingNewlineWhenItsHunkIsAccepted()
+        {
+            string[] original = { "SELECT 1" };
+            string[] rewritten = { "SELECT 1", "" };
+            var hunks = LineDiff.ComputeHunks(original, rewritten);
+
+            var merged = LineDiff.ApplySelectedHunks(original, hunks, h => LineDiff.HunkTouchesLine(h, 1));
+
+            Assert.Equal(rewritten, merged);
         }
 
         [Fact]
