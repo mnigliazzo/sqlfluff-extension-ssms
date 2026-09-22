@@ -63,13 +63,15 @@ jobs:
       run: |
         $version = "${{ steps.version.outputs.version }}"
         $lines = Get-Content CHANGELOG.md
-        $start = ($lines | Select-String "^## \[$([regex]::Escape($version))\]").LineNumber
+        $startMatch = $lines | Select-String "^## \[$([regex]::Escape($version))\]" | Select-Object -First 1
+        $start = if ($startMatch) { $startMatch.LineNumber } else { $null }
         if (-not $start) {
           Write-Warning "No CHANGELOG section found for [$version]; falling back to a generic body."
           Write-Output "notes=" >> $env:GITHUB_OUTPUT
         } else {
           $rest = $lines[$start..($lines.Count - 1)]
-          $endOffset = ($rest | Select-Object -Skip 1 | Select-String "^## \[").LineNumber
+          $endMatch = $rest | Select-Object -Skip 1 | Select-String "^## \[" | Select-Object -First 1
+          $endOffset = if ($endMatch) { $endMatch.LineNumber } else { $null }
           $section = if ($endOffset) { $rest[1..($endOffset - 1)] } else { $rest[1..($rest.Count - 1)] }
           $body = ($section -join "`n").Trim()
           $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
