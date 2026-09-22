@@ -67,6 +67,7 @@ Files open in the editor are always read from the live buffer, so this only appl
 
 | Setting | Default |
 |---------|---------|
+| Extension version | *(read-only)* — the installed extension's own version. Also logged once to the SQLFluff output pane when SSMS starts. There's no in-product listing of third-party extensions in SSMS 22 to check this otherwise. |
 | Executable | `sqlfluff` (auto-detect) |
 | Dialect | `tsql` |
 | Config file | *(empty)* — fallback only, see below |

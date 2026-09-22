@@ -84,6 +84,9 @@ namespace SqlFluff.Ssms
             _rdt.AdviseRunningDocTableEvents(_documentEvents, out _rdtCookie);
             _documentEvents.AttachToOpenDocuments();
 
+            // Also visible any time via Tools > Options > SQLFluff > Extension version.
+            OutputLog.Write("SQLFluff for SSMS v" + GetType().Assembly.GetName().Version.ToString(3) + " loaded.");
+
             // Non-blocking: warn once if sqlfluff isn't reachable, instead of waiting for the first Lint/Fix to fail.
             JoinableTaskFactory.RunAsync(CheckSqlFluffAvailabilityAsync).Task.FileAndForget("sqlfluff/availability-check");
         }

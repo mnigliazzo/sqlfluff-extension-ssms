@@ -13,6 +13,17 @@ namespace SqlFluff.Ssms.Options
         private const string TriggersCategory = "Automatic linting";
         private const string DisplayCategory = "Display";
 
+        // Read from the running assembly's own metadata rather than a source-checked-in
+        // constant: the version is never committed to AssemblyInfo.cs for a given release (see
+        // CLAUDE.md's Release process) — it's only ever patched in transiently by CI right before
+        // that release's build, so this is the only value that's always accurate for whatever is
+        // actually installed.
+        [Category(ExecutionCategory)]
+        [DisplayName("Extension version")]
+        [Description("The installed version of the SQLFluff for SSMS extension itself (not the sqlfluff tool).")]
+        [ReadOnly(true)]
+        public string ExtensionVersion => typeof(SqlFluffOptionsPage).Assembly.GetName().Version.ToString(3);
+
         [Category(ExecutionCategory)]
         [DisplayName("SQLFluff executable")]
         [Description("Full path to sqlfluff.exe. Leave as 'sqlfluff' to auto-detect (PATH, the Python Scripts folders, then 'py -m sqlfluff').")]
