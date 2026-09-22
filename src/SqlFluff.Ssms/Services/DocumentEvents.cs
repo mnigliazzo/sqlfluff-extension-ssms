@@ -75,23 +75,16 @@ namespace SqlFluff.Ssms.Services
         private void Attach(uint docCookie)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (!_editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out string path))
+            if (!_editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out _))
             {
                 return;
             }
 
-            bool firstTime = false;
             _tracked.GetValue(buffer, b =>
             {
-                firstTime = true;
                 b.PostChanged += OnBufferChanged;
                 return new object();
             });
-
-            if (firstTime && _package.GetSettings().LintOnOpen)
-            {
-                RunLint(buffer, path);
-            }
         }
 
         private void OnBufferChanged(object sender, EventArgs e)

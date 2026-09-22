@@ -58,7 +58,11 @@ namespace SqlFluff.Ssms.Services
             }).Task.FileAndForget("sqlfluff/schedule");
         }
 
-        public async Task LintAsync(ITextBuffer buffer, string path, bool userInitiated)
+        // target == null lints the whole document (used by every automatic trigger: open, save,
+        // while-typing). A non-null target — the current selection, from the interactive Lint
+        // command — lints only that span; the reported line/col, relative to that fragment, are
+        // then shifted back onto the full document before being published.
+        public async Task LintAsync(ITextBuffer buffer, string path, bool userInitiated, Span? target = null)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -70,17 +74,34 @@ namespace SqlFluff.Ssms.Services
 
             SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
             ITextSnapshot snapshot = buffer.CurrentSnapshot;
-            string text = snapshot.GetText();
+            bool isSelection = target.HasValue;
+            string text = isSelection ? snapshot.GetText(target.Value) : snapshot.GetText();
 
             if (string.IsNullOrWhiteSpace(text))
             {
-                ClearDiagnostics(buffer, path);
+                if (isSelection)
+                {
+                    OutputLog.SetStatus("SQLFluff: nothing to lint.");
+                }
+                else
+                {
+                    ClearDiagnostics(buffer, path);
+                }
                 return;
+            }
+
+            int lineOffset = 0;
+            int firstLineColumnOffset = 0;
+            if (isSelection)
+            {
+                ITextSnapshotLine startLine = snapshot.GetLineFromPosition(target.Value.Start);
+                lineOffset = startLine.LineNumber;
+                firstLineColumnOffset = target.Value.Start - startLine.Start.Position;
             }
 
             if (userInitiated)
             {
-                OutputLog.SetStatus("SQLFluff: linting...");
+                OutputLog.SetStatus(isSelection ? "SQLFluff: linting selection..." : "SQLFluff: linting...");
             }
 
             try
@@ -92,6 +113,11 @@ namespace SqlFluff.Ssms.Services
                 if (cts.IsCancellationRequested)
                 {
                     return;
+                }
+
+                if (isSelection && (lineOffset > 0 || firstLineColumnOffset > 0))
+                {
+                    OffsetViolations(violations, lineOffset, firstLineColumnOffset);
                 }
 
                 int count = Publish(buffer, path, snapshot, violations, settings);
@@ -123,14 +149,61 @@ namespace SqlFluff.Ssms.Services
             }
         }
 
+        // Same "selection or whole document" targeting as Fix/Format (RewriteAsync) — used by the
+        // interactive Lint command, which has a view/selection to check; automatic triggers don't
+        // and call the buffer-only overload above directly.
+        public Task LintAsync(IWpfTextView view, ITextBuffer buffer, string path, bool userInitiated)
+        {
+            Span? target = null;
+            if (!view.Selection.IsEmpty && ReferenceEquals(view.TextBuffer, buffer))
+            {
+                SnapshotSpan selected = view.Selection.StreamSelectionSpan.SnapshotSpan;
+                if (selected.Snapshot == buffer.CurrentSnapshot)
+                {
+                    target = selected.Span;
+                }
+            }
+
+            return LintAsync(buffer, path, userInitiated, target);
+        }
+
+        private static void OffsetViolations(IReadOnlyList<LintViolation> violations, int lineOffset, int firstLineColumnOffset)
+        {
+            foreach (LintViolation v in violations)
+            {
+                if (v.StartLine == 1)
+                {
+                    v.StartColumn += firstLineColumnOffset;
+                }
+                v.StartLine += lineOffset;
+
+                if (v.EndLine > 0)
+                {
+                    if (v.EndLine == 1)
+                    {
+                        v.EndColumn += firstLineColumnOffset;
+                    }
+                    v.EndLine += lineOffset;
+                }
+            }
+        }
+
         public Task FixAsync(IWpfTextView view, ITextBuffer buffer, string path)
         {
-            return RewriteAsync(view, buffer, path, RewriteMode.Fix);
+            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: null);
         }
 
         public Task FormatAsync(IWpfTextView view, ITextBuffer buffer, string path)
         {
-            return RewriteAsync(view, buffer, path, RewriteMode.Format);
+            return RewriteAsync(view, buffer, path, RewriteMode.Format, ruleFilter: null);
+        }
+
+        // Restricts the fix to a single rule code (e.g. the one under a specific squiggle), still
+        // over the whole document/selection like FixAsync — sqlfluff has no way to target a single
+        // violation instance by position, it can only fix by rule across a span of valid SQL.
+        public Task FixRuleAsync(IWpfTextView view, ITextBuffer buffer, string path, string ruleCode)
+        {
+            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: ruleCode);
         }
 
         private enum RewriteMode
@@ -194,7 +267,80 @@ namespace SqlFluff.Ssms.Services
             return true;
         }
 
-        private async Task RewriteAsync(IWpfTextView view, ITextBuffer buffer, string path, RewriteMode mode)
+        public enum BatchRewriteOutcome
+        {
+            Unchanged,
+            Rewritten,
+            Failed,
+        }
+
+        public sealed class BatchRewriteResult
+        {
+            public BatchRewriteOutcome Outcome { get; set; }
+            public string Error { get; set; }
+        }
+
+        // Fix/Format for a buffer that's open but not the focused view (the folder-wide batch
+        // commands) — same shape as FormatForSaveAsync (no selection concept, whole buffer) but
+        // covers both verbs and reports what happened instead of a bare bool.
+        public async Task<BatchRewriteResult> RewriteBufferForBatchAsync(ITextBuffer buffer, string path, bool useFix)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (!buffer.CheckEditAccess())
+            {
+                return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Failed, Error = "The document is read-only." };
+            }
+
+            SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
+            ITextSnapshot snapshot = buffer.CurrentSnapshot;
+            string original = snapshot.GetText();
+
+            if (string.IsNullOrWhiteSpace(original))
+            {
+                return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Unchanged };
+            }
+
+            string rewritten;
+            try
+            {
+                rewritten = useFix
+                    ? await Task.Run(() => SqlFluffRunner.FixAsync(original, path, settings, CancellationToken.None))
+                    : await Task.Run(() => SqlFluffRunner.FormatAsync(original, path, settings, CancellationToken.None));
+            }
+            catch (SqlFluffException ex)
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Failed, Error = ex.Message };
+            }
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (buffer.CurrentSnapshot.Version.VersionNumber != snapshot.Version.VersionNumber)
+            {
+                return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Failed, Error = "The document changed while SQLFluff was running." };
+            }
+
+            string newline = DominantNewline(snapshot);
+            rewritten = rewritten.Replace("\r\n", "\n").Replace("\n", newline);
+
+            if (string.Equals(rewritten, original, StringComparison.Ordinal))
+            {
+                return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Unchanged };
+            }
+
+            ApplyMinimalEdit(buffer, 0, original, rewritten);
+            return new BatchRewriteResult { Outcome = BatchRewriteOutcome.Rewritten };
+        }
+
+        // Exposes the RDT-based save (see TrySaveDocumentAsync below) to the folder-wide batch
+        // commands, which need to persist an open buffer they just rewrote.
+        public Task<bool> SaveDocumentAsync(string path)
+        {
+            return TrySaveDocumentAsync(path);
+        }
+
+        private async Task RewriteAsync(IWpfTextView view, ITextBuffer buffer, string path, RewriteMode mode, string ruleFilter)
         {
             string verb = mode == RewriteMode.Format ? "format" : "fix";
             string verbCapitalized = mode == RewriteMode.Format ? "Format" : "Fix";
@@ -208,6 +354,12 @@ namespace SqlFluff.Ssms.Services
             }
 
             SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
+            if (!string.IsNullOrEmpty(ruleFilter))
+            {
+                settings = settings.Clone();
+                settings.Rules = ruleFilter;
+            }
+
             ITextSnapshot snapshot = buffer.CurrentSnapshot;
 
             Span target = new Span(0, snapshot.Length);
@@ -433,7 +585,9 @@ namespace SqlFluff.Ssms.Services
         // used: a .sqlfluff discovered near the document (if it exists on disk) or the open
         // folder (covers an unsaved new document), falling back to the Options-configured path.
         // Resolving it here, once, keeps SqlFluffRunner itself free of any VS SDK dependency.
-        private SqlFluffSettings ResolveEffectiveSettings(SqlFluffSettings settings, string path)
+        // Internal (not private): FolderBatchService needs the same resolution for closed files
+        // it reads straight off disk, without an ITextBuffer to route through this class.
+        internal SqlFluffSettings ResolveEffectiveSettings(SqlFluffSettings settings, string path)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             string openFolderPath = _editor.GetOpenFolderPath();
@@ -444,22 +598,9 @@ namespace SqlFluff.Ssms.Services
                 return settings;
             }
 
-            return new SqlFluffSettings
-            {
-                ExecutablePath = settings.ExecutablePath,
-                Dialect = settings.Dialect,
-                ConfigFile = resolvedConfigFile,
-                Rules = settings.Rules,
-                ExcludeRules = settings.ExcludeRules,
-                TimeoutSeconds = settings.TimeoutSeconds,
-                LintOnOpen = settings.LintOnOpen,
-                LintOnSave = settings.LintOnSave,
-                LintOnType = settings.LintOnType,
-                TypeDelayMs = settings.TypeDelayMs,
-                Severity = settings.Severity,
-                AutoSaveAfterFix = settings.AutoSaveAfterFix,
-                FormatOnSave = settings.FormatOnSave,
-            };
+            SqlFluffSettings clone = settings.Clone();
+            clone.ConfigFile = resolvedConfigFile;
+            return clone;
         }
 
         private static string DominantNewline(ITextSnapshot snapshot)

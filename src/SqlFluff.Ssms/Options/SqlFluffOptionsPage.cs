@@ -49,11 +49,6 @@ namespace SqlFluff.Ssms.Options
         public bool AutoSaveAfterFix { get; set; } = false;
 
         [Category(TriggersCategory)]
-        [DisplayName("Lint on open")]
-        [Description("Lint a SQL document the first time it is shown.")]
-        public bool LintOnOpen { get; set; } = true;
-
-        [Category(TriggersCategory)]
         [DisplayName("Lint on save")]
         [Description("Lint a SQL document every time it is saved.")]
         public bool LintOnSave { get; set; } = true;
@@ -94,7 +89,6 @@ namespace SqlFluff.Ssms.Options
                 Rules = Rules,
                 ExcludeRules = ExcludeRules,
                 TimeoutSeconds = TimeoutSeconds,
-                LintOnOpen = LintOnOpen,
                 LintOnSave = LintOnSave,
                 LintOnType = LintOnType,
                 TypeDelayMs = System.Math.Max(300, TypeDelayMs),

@@ -29,6 +29,9 @@
       <Group guid="guidSqlFluffCmdSet" id="SubMenuActionsGroup" priority="0x0100">
         <Parent guid="guidSqlFluffCmdSet" id="SqlFluffSubMenu" />
       </Group>
+      <Group guid="guidSqlFluffCmdSet" id="SubMenuFolderGroup" priority="0x0150">
+        <Parent guid="guidSqlFluffCmdSet" id="SqlFluffSubMenu" />
+      </Group>
       <Group guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" priority="0x0200">
         <Parent guid="guidSqlFluffCmdSet" id="SqlFluffSubMenu" />
       </Group>
@@ -46,8 +49,8 @@
         <Icon guid="ImageCatalogGuid" id="ValidateDocument" />
         <CommandFlag>IconIsMoniker</CommandFlag>
         <Strings>
-          <ButtonText>&amp;Lint Document</ButtonText>
-          <ToolTipText>Run SQLFluff lint on the active SQL document</ToolTipText>
+          <ButtonText>&amp;Lint (Selection or Document)</ButtonText>
+          <ToolTipText>Run SQLFluff lint on the selection, or the whole document when nothing is selected</ToolTipText>
         </Strings>
       </Button>
 
@@ -78,6 +81,36 @@
         <Strings>
           <ButtonText>&amp;Clear Diagnostics</ButtonText>
           <ToolTipText>Remove SQLFluff diagnostics for the active document</ToolTipText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidLintFolder" priority="0x0100" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuFolderGroup" />
+        <Icon guid="ImageCatalogGuid" id="ValidateDocument" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>Lint &amp;All Files in Folder</ButtonText>
+          <ToolTipText>Run SQLFluff lint on every .sql file under the open folder</ToolTipText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidFixFolder" priority="0x0101" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuFolderGroup" />
+        <Icon guid="ImageCatalogGuid" id="FormatDocument" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>Fi&amp;x All Files in Folder</ButtonText>
+          <ToolTipText>Apply all SQLFluff fixes to every .sql file under the open folder (asks for confirmation first)</ToolTipText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidFormatFolder" priority="0x0102" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuFolderGroup" />
+        <Icon guid="ImageCatalogGuid" id="FormatSelection" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>F&amp;ormat All Files in Folder</ButtonText>
+          <ToolTipText>Apply SQLFluff's safe formatting rules to every .sql file under the open folder (asks for confirmation first)</ToolTipText>
         </Strings>
       </Button>
 
@@ -133,6 +166,7 @@
       <IDSymbol name="SubMenuOptionsGroup" value="0x1002" />
       <IDSymbol name="ContextMenuGroup" value="0x1003" />
       <IDSymbol name="ToolbarGroup" value="0x1004" />
+      <IDSymbol name="SubMenuFolderGroup" value="0x1005" />
       <IDSymbol name="SqlFluffSubMenu" value="0x2000" />
       <IDSymbol name="SqlFluffToolbar" value="0x2001" />
       <IDSymbol name="cmdidLint" value="0x0100" />
@@ -140,6 +174,9 @@
       <IDSymbol name="cmdidClear" value="0x0102" />
       <IDSymbol name="cmdidOptions" value="0x0103" />
       <IDSymbol name="cmdidFormat" value="0x0104" />
+      <IDSymbol name="cmdidLintFolder" value="0x0105" />
+      <IDSymbol name="cmdidFixFolder" value="0x0106" />
+      <IDSymbol name="cmdidFormatFolder" value="0x0107" />
     </GuidSymbol>
   </Symbols>
 

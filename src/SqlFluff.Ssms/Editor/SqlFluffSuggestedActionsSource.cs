@@ -59,16 +59,23 @@ namespace SqlFluff.Ssms.Editor
         public IEnumerable<SuggestedActionSet> GetSuggestedActions(
             ISuggestedActionCategorySet requestedActionCategories, SnapshotSpan range, CancellationToken cancellationToken)
         {
-            if (!Matches(range))
+            ViolationEntry match = FindMatch(range);
+            if (match == null)
             {
                 yield break;
             }
 
-            var actions = new List<ISuggestedAction>
+            var actions = new List<ISuggestedAction>();
+
+            // Parse errors (PRS/LXR/TMP) aren't sqlfluff rule codes, so they can't be targeted via
+            // --rules — only the blanket Fix/Format actions apply to those.
+            if (!match.Violation.IsParseError)
             {
-                new SqlFluffFixAction(_view, _buffer, isFormat: false),
-                new SqlFluffFixAction(_view, _buffer, isFormat: true),
-            };
+                actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code));
+            }
+
+            actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: false));
+            actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: true));
 
             yield return new SuggestedActionSet(
                 PredefinedSuggestedActionCategoryNames.CodeFix, actions, "SQLFluff");
@@ -77,7 +84,7 @@ namespace SqlFluff.Ssms.Editor
         public Task<bool> HasSuggestedActionsAsync(
             ISuggestedActionCategorySet requestedActionCategories, SnapshotSpan range, CancellationToken cancellationToken)
         {
-            return Task.FromResult(Matches(range));
+            return Task.FromResult(FindMatch(range) != null);
         }
 
         public bool TryGetTelemetryId(out Guid telemetryId)
@@ -90,20 +97,25 @@ namespace SqlFluff.Ssms.Editor
         {
         }
 
-        private bool Matches(SnapshotSpan range)
+        private ViolationEntry FindMatch(SnapshotSpan range)
         {
             ViolationSet set = ViolationStore.Get(_buffer);
             if (set == null || set.Entries.Count == 0)
             {
-                return false;
+                return null;
             }
 
-            return set.Entries.Any(entry =>
+            foreach (ViolationEntry entry in set.Entries)
             {
                 SnapshotSpan translated = new SnapshotSpan(set.Snapshot, entry.Span)
                     .TranslateTo(range.Snapshot, SpanTrackingMode.EdgeInclusive);
-                return translated.IntersectsWith(range) || translated.Contains(range.Start);
-            });
+                if (translated.IntersectsWith(range) || translated.Contains(range.Start))
+                {
+                    return entry;
+                }
+            }
+
+            return null;
         }
     }
 
@@ -112,7 +124,9 @@ namespace SqlFluff.Ssms.Editor
         private readonly IWpfTextView _view;
         private readonly ITextBuffer _buffer;
         private readonly bool _isFormat;
+        private readonly string _ruleCode;
 
+        // Fix or Format the whole document/selection.
         public SqlFluffFixAction(ITextView view, ITextBuffer buffer, bool isFormat)
         {
             _view = view as IWpfTextView;
@@ -120,9 +134,20 @@ namespace SqlFluff.Ssms.Editor
             _isFormat = isFormat;
         }
 
-        public string DisplayText => _isFormat
-            ? "Format with SQLFluff (safe rules only)"
-            : "Fix with SQLFluff (all fixable issues)";
+        // Fix only the rule of the violation under the cursor (still over the whole
+        // document/selection — sqlfluff can't target a single violation instance by position).
+        public SqlFluffFixAction(ITextView view, ITextBuffer buffer, string ruleCode)
+        {
+            _view = view as IWpfTextView;
+            _buffer = buffer;
+            _ruleCode = ruleCode;
+        }
+
+        public string DisplayText => _ruleCode != null
+            ? "Fix this issue with SQLFluff (" + _ruleCode + ")"
+            : _isFormat
+                ? "Format with SQLFluff (safe rules only)"
+                : "Fix with SQLFluff (all fixable issues)";
 
         public string IconAutomationText => null;
         public ImageMoniker IconMoniker => default;
@@ -151,9 +176,15 @@ namespace SqlFluff.Ssms.Editor
             string path = SqlFluffPackage.Instance.EditorServices.GetPath(_buffer);
             LintService lint = SqlFluffPackage.Instance.LintService;
 
+            Func<Task> operation = _ruleCode != null
+                ? () => lint.FixRuleAsync(_view, _buffer, path, _ruleCode)
+                : _isFormat
+                    ? (Func<Task>)(() => lint.FormatAsync(_view, _buffer, path))
+                    : () => lint.FixAsync(_view, _buffer, path);
+
             ThreadHelper.JoinableTaskFactory
-                .RunAsync(() => _isFormat ? lint.FormatAsync(_view, _buffer, path) : lint.FixAsync(_view, _buffer, path))
-                .Task.FileAndForget(_isFormat ? "sqlfluff/lightbulb-format" : "sqlfluff/lightbulb-fix");
+                .RunAsync(operation)
+                .Task.FileAndForget(_ruleCode != null ? "sqlfluff/lightbulb-fix-rule" : _isFormat ? "sqlfluff/lightbulb-format" : "sqlfluff/lightbulb-fix");
         }
 
         public void Dispose()

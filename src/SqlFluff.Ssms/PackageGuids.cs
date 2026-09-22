@@ -20,5 +20,8 @@ namespace SqlFluff.Ssms
         public const int CmdClear = 0x0102;
         public const int CmdOptions = 0x0103;
         public const int CmdFormat = 0x0104;
+        public const int CmdLintFolder = 0x0105;
+        public const int CmdFixFolder = 0x0106;
+        public const int CmdFormatFolder = 0x0107;
     }
 }

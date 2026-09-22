@@ -100,7 +100,7 @@ Fix/Format apply changes to the in-memory buffer only — they do **not** save t
 `SqlFluffPackage.cs` is the `AsyncPackage` entry point. It owns the long-lived service instances (`LintService`, `ErrorListService`, `EditorServices`) and wires up:
 
 - Menu/toolbar/context-menu commands (defined in `SqlFluffPackage.vsct`, IDs in `PackageGuids.cs`) via `OleMenuCommandService`.
-- `Services/DocumentEvents.cs`, an `IVsRunningDocTableEvents3` implementation that triggers lint-on-open/lint-on-save and drives the lint-while-typing debounce (via `LintService.Schedule`), and cleans up Error List entries when a document's last lock is released (i.e., it's closed).
+- `Services/DocumentEvents.cs`, an `IVsRunningDocTableEvents3` implementation that triggers lint-on-save and drives the lint-while-typing debounce (via `LintService.Schedule`), and cleans up Error List entries when a document's last lock is released (i.e., it's closed). There is no lint-on-open — it was removed as unreliable/unwanted; `DocumentEvents` still tracks each buffer on first show, but only to subscribe the lint-while-typing handler.
 
 Because `Editor/SqlFluffSuggestedActionsSource.cs` is composed by MEF (no constructor injection available), it reaches the package's services through `SqlFluffPackage.Instance`, a static singleton set in `InitializeAsync` / cleared in `Dispose`. This is the one deliberate exception to normal DI in this codebase — needed because MEF components and `AsyncPackage` are wired up through entirely separate mechanisms in the VS extensibility model.
 

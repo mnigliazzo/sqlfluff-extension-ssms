@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.Design;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
@@ -28,6 +31,7 @@ namespace SqlFluff.Ssms
         private ErrorListService _errors;
         private LintService _lint;
         private EditorServices _editor;
+        private FolderBatchService _folderBatch;
         private DocumentEvents _documentEvents;
         private IVsRunningDocumentTable _rdt;
         private uint _rdtCookie;
@@ -59,6 +63,9 @@ namespace SqlFluff.Ssms
             _errors = new ErrorListService(this);
             _lint = new LintService(this, _editor, _errors);
 
+            _rdt = (IVsRunningDocumentTable)await GetServiceAsync(typeof(SVsRunningDocumentTable));
+            _folderBatch = new FolderBatchService(this, _rdt, _editor, _lint, _errors);
+
             var commands = await GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
             if (commands != null)
             {
@@ -67,9 +74,11 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdFormat, (s, e) => RunOnActiveDocument(EditorAction.Format), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdClear, (s, e) => ClearActiveDocument(), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
+                AddFolderCommand(commands, PackageIds.CmdLintFolder, FolderBatchAction.Lint);
+                AddFolderCommand(commands, PackageIds.CmdFixFolder, FolderBatchAction.Fix);
+                AddFolderCommand(commands, PackageIds.CmdFormatFolder, FolderBatchAction.Format);
             }
 
-            _rdt = (IVsRunningDocumentTable)await GetServiceAsync(typeof(SVsRunningDocumentTable));
             _documentEvents = new DocumentEvents(this, _rdt, _editor, _lint);
             _rdt.AdviseRunningDocTableEvents(_documentEvents, out _rdtCookie);
             _documentEvents.AttachToOpenDocuments();
@@ -109,6 +118,18 @@ namespace SqlFluff.Ssms
             service.AddCommand(command);
         }
 
+        private void AddFolderCommand(OleMenuCommandService service, int id, FolderBatchAction action)
+        {
+            var command = new OleMenuCommand((s, e) => RunFolderAction(action), new CommandID(PackageGuids.CmdSet, id));
+            command.BeforeQueryStatus += (sender, args) =>
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+                ((OleMenuCommand)sender).Enabled = !string.IsNullOrEmpty(_editor.GetOpenFolderPath());
+            };
+
+            service.AddCommand(command);
+        }
+
         private enum EditorAction
         {
             Lint,
@@ -135,7 +156,7 @@ namespace SqlFluff.Ssms
                     operation = () => _lint.FormatAsync(view, buffer, path);
                     break;
                 default:
-                    operation = () => _lint.LintAsync(buffer, path, userInitiated: true);
+                    operation = () => _lint.LintAsync(view, buffer, path, userInitiated: true);
                     break;
             }
 
@@ -150,6 +171,109 @@ namespace SqlFluff.Ssms
                 _lint.Clear(buffer, path);
                 OutputLog.SetStatus("SQLFluff: diagnostics cleared.");
             }
+        }
+
+        private void RunFolderAction(FolderBatchAction action)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string folder = _editor.GetOpenFolderPath();
+            if (string.IsNullOrEmpty(folder))
+            {
+                OutputLog.SetStatus("SQLFluff: open a folder first.");
+                return;
+            }
+
+            JoinableTaskFactory
+                .RunAsync(() => RunFolderActionAsync(folder, action))
+                .Task.FileAndForget("sqlfluff/folder-" + action.ToString().ToLowerInvariant());
+        }
+
+        private async Task RunFolderActionAsync(string folder, FolderBatchAction action)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            OutputLog.SetStatus("SQLFluff: scanning folder...");
+
+            IReadOnlyList<string> files = await Task.Run(() => FolderBatchService.EnumerateSqlFiles(folder));
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (files.Count == 0)
+            {
+                OutputLog.SetStatus("SQLFluff: no .sql files found under " + folder + ".");
+                return;
+            }
+
+            if (action != FolderBatchAction.Lint && !ConfirmFolderRewrite(folder, files, action))
+            {
+                OutputLog.SetStatus("SQLFluff: cancelled.");
+                return;
+            }
+
+            string verb = action == FolderBatchAction.Lint ? "linting" : action == FolderBatchAction.Fix ? "fixing" : "formatting";
+            OutputLog.SetStatus("SQLFluff: " + verb + " " + files.Count + " file(s)...");
+
+            FolderBatchSummary summary = await _folderBatch.RunAsync(folder, files, action, CancellationToken.None);
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            OutputLog.Write(BuildSummaryLog(folder, action, summary));
+            OutputLog.SetStatus(BuildSummaryStatus(action, summary));
+
+            if (action == FolderBatchAction.Lint && summary.TotalViolations > 0)
+            {
+                _errors.Show();
+            }
+        }
+
+        private bool ConfirmFolderRewrite(string folder, IReadOnlyList<string> files, FolderBatchAction action)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string verb = action == FolderBatchAction.Fix ? "Fix" : "Format";
+            const int previewCount = 15;
+
+            var sb = new StringBuilder();
+            sb.Append(verb).Append(" will rewrite up to ").Append(files.Count)
+              .Append(" .sql file(s) on disk under:\n").Append(folder).Append("\n\n");
+
+            foreach (string file in files.Take(previewCount))
+            {
+                sb.Append("  ").Append(FolderBatchService.MakeRelativePath(folder, file)).Append('\n');
+            }
+
+            if (files.Count > previewCount)
+            {
+                sb.Append("  ...and ").Append(files.Count - previewCount).Append(" more\n");
+            }
+
+            sb.Append("\nFiles open in the editor with unsaved changes will be skipped. Continue?");
+
+            int result = VsShellUtilities.ShowMessageBox(
+                this, sb.ToString(), "SQLFluff: " + verb + " All Files in Folder",
+                OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
+
+            return result == (int)VSConstants.MessageBoxResult.IDYES;
+        }
+
+        private static string BuildSummaryStatus(FolderBatchAction action, FolderBatchSummary summary)
+        {
+            if (action == FolderBatchAction.Lint)
+            {
+                return "SQLFluff: linted " + summary.TotalFiles + " file(s), " + summary.TotalViolations +
+                       " issue(s) found. See the SQLFluff output pane and Error List.";
+            }
+
+            return "SQLFluff: " + summary.Rewritten + " fixed, " + summary.Unchanged + " unchanged, " +
+                   summary.Skipped + " skipped, " + summary.Failed + " failed. See the SQLFluff output pane.";
+        }
+
+        private static string BuildSummaryLog(string folder, FolderBatchAction action, FolderBatchSummary summary)
+        {
+            var sb = new StringBuilder();
+            sb.Append("Folder ").Append(action.ToString().ToLowerInvariant()).Append(" under ").Append(folder).Append(':').Append(Environment.NewLine);
+            foreach (string line in summary.Details)
+            {
+                sb.Append("  ").Append(line).Append(Environment.NewLine);
+            }
+
+            return sb.ToString();
         }
 
         protected override void Dispose(bool disposing)

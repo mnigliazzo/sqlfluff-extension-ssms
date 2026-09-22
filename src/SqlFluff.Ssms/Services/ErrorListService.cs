@@ -63,6 +63,49 @@ namespace SqlFluff.Ssms.Services
             }
         }
 
+        // Same as Publish, but for violations with no live ITextSnapshot to compute a Span from —
+        // the folder-wide batch Lint command, which reads closed files straight off disk. Line/col
+        // come directly from sqlfluff's own (1-based) report instead of a Span translation.
+        public void PublishRaw(string path, IReadOnlyList<LintViolation> violations, DiagnosticSeverity severity, Action<LintViolation> navigate)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string key = path ?? string.Empty;
+
+            _provider.SuspendRefresh();
+            try
+            {
+                RemoveTasks(key);
+
+                var created = new List<ErrorTask>(violations.Count);
+                foreach (LintViolation violation in violations)
+                {
+                    var task = new ErrorTask
+                    {
+                        Text = violation.Message,
+                        Document = path,
+                        Line = Math.Max(0, violation.StartLine - 1),
+                        Column = Math.Max(0, violation.StartColumn - 1),
+                        Category = TaskCategory.Misc,
+                        ErrorCategory = CategoryFor(violation, severity),
+                        Priority = TaskPriority.Normal,
+                        CanDelete = false,
+                    };
+
+                    LintViolation captured = violation;
+                    task.Navigate += (sender, args) => navigate(captured);
+
+                    _provider.Tasks.Add(task);
+                    created.Add(task);
+                }
+
+                _tasksByPath[key] = created;
+            }
+            finally
+            {
+                _provider.ResumeRefresh();
+            }
+        }
+
         public void Clear(string path)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
