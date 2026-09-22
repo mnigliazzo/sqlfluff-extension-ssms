@@ -63,6 +63,14 @@ msbuild SqlFluff.Ssms.csproj /p:Configuration=Release
 
 VSIX output: `bin\Release\SqlFluff.Ssms.vsix`
 
+### Run Tests
+
+```bash
+dotnet test tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj
+```
+
+No VS SDK or SSMS/Visual Studio MSBuild needed for this — it's a plain `net8.0` xUnit project. It only covers pure logic (argument quoting, JSON parsing) that doesn't touch the VS editor APIs; if you add new logic like that, add it to a standalone file in `Core/` and cover it with a test the same way.
+
 ## Code Style
 
 - C# 9+ features OK (.NET 4.8 base class library)
