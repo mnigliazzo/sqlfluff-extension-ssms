@@ -95,21 +95,22 @@ All contributors are expected to follow the [Code of Conduct](/.github/CODE_OF_C
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full history of changes. All releases are also published on the [Releases page](../../releases), each with the compiled VSIX attached.
+Release notes live on the [Releases page](../../releases), each with the compiled VSIX attached. [CHANGELOG.md](CHANGELOG.md) has the hand-written history through v1.2.1; every release after that is generated automatically from closed Issues (see below).
 
 ### Release Process
 
-The VSIX is never built or committed by hand — it's always produced by the CI pipeline, straight from a clean checkout of `main`.
+The VSIX is never built or committed by hand — it's always produced by the CI pipeline, straight from a clean checkout of `main`. Release notes come from closed Issues, not from the CHANGELOG or PR descriptions — see [CONTRIBUTING.md](CONTRIBUTING.md#issues-milestones--releases) for how to file an issue so it shows up correctly.
 
-1. Open a feature branch and PR as described above.
-2. As part of that PR (or a dedicated follow-up), add an entry to `CHANGELOG.md` under `## [Unreleased]` and bump the version in both:
+1. User-facing changes start as a GitHub Issue, assigned to the `Unreleased` [milestone](../../milestones), labeled `enhancement`/`bug`/etc.
+2. Branch, PR (referencing the issue, e.g. "Closes #12"), review, merge — as described above.
+3. When ready to cut a release: rename the `Unreleased` milestone to the target version (e.g. `v1.3.0`) and close it, then bump the version in both:
    - `src\SqlFluff.Ssms\Properties\AssemblyInfo.cs` (`AssemblyVersion` / `AssemblyFileVersion`)
    - `src\SqlFluff.Ssms\source.extension.vsixmanifest` (`Identity Version`)
-3. Merge the PR to `main`.
-4. On push to `main`, the **build** workflow compiles and sanity-checks the VSIX, and the **release** workflow:
+4. Merge that version bump to `main`. On push, the **build** workflow compiles and sanity-checks the VSIX, and the **release** workflow:
    - Skips silently if a release for that version's tag (`vX.Y.Z`) already exists (so pushes that don't bump the version don't create duplicate releases)
-   - Otherwise extracts that version's section from `CHANGELOG.md` as the release notes
+   - Looks up the milestone named `vX.Y.Z`, lists its closed issues grouped by label into Added/Fixed/Changed/Other, and uses that as the release notes
    - Creates a GitHub Release tagged `vX.Y.Z` with the freshly built `SqlFluff.Ssms.vsix` attached
+5. Create a new `Unreleased` milestone for what comes next.
 
 ## Support & Feedback
 

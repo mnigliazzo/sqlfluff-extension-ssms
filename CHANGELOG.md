@@ -1,10 +1,8 @@
 # Changelog
 
-All notable changes to this project are documented here.
+Versions through **1.2.1** below were written by hand, one entry per PR. From the next release on, this file is no longer maintained manually — release notes are generated automatically from closed GitHub Issues assigned to each version's [milestone](../../milestones), grouped by label (`enhancement` → Added, `bug` → Fixed, `chore`/`documentation` → Changed), the same categories this file already used. See the [Releases page](../../releases) for the full history going forward, and [CONTRIBUTING.md](CONTRIBUTING.md) for how issues/milestones drive a release.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows [Semantic Versioning](https://semver.org/).
-
-## [Unreleased]
+Versioning follows [Semantic Versioning](https://semver.org/). The categories below follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.2.1] - 2026-09-22
 

@@ -11,6 +11,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
+      issues: read
 
     steps:
     - uses: actions/checkout@v4
@@ -59,28 +60,65 @@ jobs:
         exit 0
       shell: pwsh
 
-    - name: Extract Release Notes from CHANGELOG
+    - name: Extract Release Notes from Milestone Issues
       id: notes
       if: steps.tagcheck.outputs.exists == 'False'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         $version = "${{ steps.version.outputs.version }}"
-        $lines = Get-Content CHANGELOG.md
-        $startMatch = $lines | Select-String "^## \[$([regex]::Escape($version))\]" | Select-Object -First 1
-        $start = if ($startMatch) { $startMatch.LineNumber } else { $null }
-        if (-not $start) {
-          Write-Warning "No CHANGELOG section found for [$version]; falling back to a generic body."
-          Write-Output "notes=" >> $env:GITHUB_OUTPUT
+        $repo = "${{ github.repository }}"
+        $milestoneTitle = "v$version"
+
+        # Release notes are sourced from closed issues in the milestone named "vX.Y.Z" (not from
+        # merged PRs), grouped by label the same way CHANGELOG.md's [Keep a Changelog] sections
+        # are: enhancement -> Added, bug -> Fixed, chore/documentation -> Changed, anything else
+        # -> Other. The milestone is expected to be renamed from "Unreleased" and closed as part
+        # of cutting the release (see CONTRIBUTING.md).
+        $milestones = gh api "repos/$repo/milestones?state=all" | ConvertFrom-Json
+        $milestone = $milestones | Where-Object { $_.title -eq $milestoneTitle } | Select-Object -First 1
+
+        if (-not $milestone) {
+          Write-Warning "No milestone named '$milestoneTitle' found; release will have no linked-issues section."
+          $body = "_No linked issues for this release._"
         } else {
-          $rest = $lines[$start..($lines.Count - 1)]
-          $endMatch = $rest | Select-Object -Skip 1 | Select-String "^## \[" | Select-Object -First 1
-          $endOffset = if ($endMatch) { $endMatch.LineNumber } else { $null }
-          $section = if ($endOffset) { $rest[1..($endOffset - 1)] } else { $rest[1..($rest.Count - 1)] }
-          $body = ($section -join "`n").Trim()
-          $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<$delimiter"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value $body
-          Add-Content -Path $env:GITHUB_OUTPUT -Value $delimiter
+          $issues = gh api "repos/$repo/issues?milestone=$($milestone.number)&state=closed&per_page=100" | ConvertFrom-Json
+          $realIssues = @($issues | Where-Object { -not $_.pull_request })
+
+          if ($realIssues.Count -eq 0) {
+            $body = "_No linked issues for this release._"
+          } else {
+            $categories = [ordered]@{
+              "### Added"   = @()
+              "### Fixed"   = @()
+              "### Changed" = @()
+              "### Other"   = @()
+            }
+            foreach ($issue in $realIssues) {
+              $labelNames = @($issue.labels | ForEach-Object { $_.name })
+              $line = "- $($issue.title) (#$($issue.number))"
+              if ($labelNames -contains "enhancement") { $categories["### Added"] += $line }
+              elseif ($labelNames -contains "bug") { $categories["### Fixed"] += $line }
+              elseif ($labelNames -contains "chore" -or $labelNames -contains "documentation") { $categories["### Changed"] += $line }
+              else { $categories["### Other"] += $line }
+            }
+
+            $sections = foreach ($key in $categories.Keys) {
+              if ($categories[$key].Count -gt 0) {
+                $key
+                $categories[$key]
+                ""
+              }
+            }
+            $body = ($sections -join "`n").Trim()
+          }
         }
+
+        $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
+        Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<$delimiter"
+        Add-Content -Path $env:GITHUB_OUTPUT -Value $body
+        Add-Content -Path $env:GITHUB_OUTPUT -Value $delimiter
+        exit 0
       shell: pwsh
 
     - name: Create Release
@@ -103,7 +141,7 @@ jobs:
           - SSMS 22.x
           - Python 3.7+ with SQLFluff: `pip install sqlfluff`
 
-          See the [README](https://github.com/${{ github.repository }}#readme) and [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          See the [README](https://github.com/${{ github.repository }}#readme) for usage and configuration, and [all releases](https://github.com/${{ github.repository }}/releases) for the full history.
         files: src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
         draft: false
         prerelease: false
