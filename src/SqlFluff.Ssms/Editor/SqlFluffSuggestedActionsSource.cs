@@ -71,7 +71,7 @@ namespace SqlFluff.Ssms.Editor
             // --rules — only the blanket Fix/Format actions apply to those.
             if (!match.Violation.IsParseError)
             {
-                actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code));
+                actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code, match.Violation.StartLine));
             }
 
             actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: false));
@@ -125,6 +125,7 @@ namespace SqlFluff.Ssms.Editor
         private readonly ITextBuffer _buffer;
         private readonly bool _isFormat;
         private readonly string _ruleCode;
+        private readonly int _ruleTargetLine;
 
         // Fix or Format the whole document/selection.
         public SqlFluffFixAction(ITextView view, ITextBuffer buffer, bool isFormat)
@@ -134,13 +135,15 @@ namespace SqlFluff.Ssms.Editor
             _isFormat = isFormat;
         }
 
-        // Fix only the rule of the violation under the cursor (still over the whole
-        // document/selection — sqlfluff can't target a single violation instance by position).
-        public SqlFluffFixAction(ITextView view, ITextBuffer buffer, string ruleCode)
+        // Fix only the rule of the violation under the cursor, keeping only the diff hunk that
+        // touches targetLine (see LintService.FixRuleAsync) — sqlfluff can't target a single
+        // violation instance by position, so this is a best-effort single-violation fix.
+        public SqlFluffFixAction(ITextView view, ITextBuffer buffer, string ruleCode, int targetLine)
         {
             _view = view as IWpfTextView;
             _buffer = buffer;
             _ruleCode = ruleCode;
+            _ruleTargetLine = targetLine;
         }
 
         public string DisplayText => _ruleCode != null
@@ -177,7 +180,7 @@ namespace SqlFluff.Ssms.Editor
             LintService lint = SqlFluffPackage.Instance.LintService;
 
             Func<Task> operation = _ruleCode != null
-                ? () => lint.FixRuleAsync(_view, _buffer, path, _ruleCode)
+                ? () => lint.FixRuleAsync(_view, _buffer, path, _ruleCode, _ruleTargetLine)
                 : _isFormat
                     ? (Func<Task>)(() => lint.FormatAsync(_view, _buffer, path))
                     : () => lint.FixAsync(_view, _buffer, path);

@@ -14,7 +14,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Fix**: Apply all of SQLFluff's fixable rules to the selection or document
 - **Format**: Apply only SQLFluff's safe, stable subset of rules (like a formatter, not a full auto-fixer)
 - **Folder-wide commands**: run Lint/Fix/Format across every `.sql` file under the open folder, not just the active document
-- **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" scoped to just that violation's rule, plus whole-document Fix/Format
+- **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" that fixes just that one violation (best-effort — see below), plus whole-document Fix/Format
 - **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect
@@ -45,7 +45,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Fix (Selection or Document)** — Apply all fixable rules to the selection or document
 - **Format (Selection or Document)** — Apply only the safe, stable subset of rules to the selection or document
 - **Clear Diagnostics** — Remove diagnostics
-- **Lint/Fix/Format All Files in Folder** — run against every `.sql` file under the open folder instead of just the active document (Fix/Format confirm before rewriting files on disk, and skip any file with unsaved editor changes)
+- **Lint/Fix/Format All Files in Folder** — run against every `.sql` file under the open folder instead of just the active document. Fix/Format confirm before rewriting files on disk and skip any file with unsaved editor changes. Progress is reported in the status bar as each file is processed (`fixing 12/80 — path\to\file.sql`); running the same command again while it's in progress cancels it.
 - **Options** — Configure the extension
 
 **Keyboard**:
@@ -53,9 +53,13 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - `Ctrl+K, Ctrl+Shift+F` — Fix
 - `Ctrl+K, Ctrl+Shift+D` — Format
 
-**Light bulb** (`Alt+.`) on a squiggle for quick actions, including a fix scoped to just that violation's rule.
+**Light bulb** (`Alt+.`) on a squiggle for quick actions, including "Fix this issue". SQLFluff can only fix by rule across a whole span of SQL, not by violation instance, so this runs a scoped fix for just that rule and then keeps only the change touching the clicked line — other occurrences of the same rule elsewhere in the file are left alone.
 
 > The query editor's right-click context menu is SSMS's own custom menu, not extensible by third-party extensions — see [#27](../../issues/27) for why there's no right-click entry here.
+
+### Folder-wide commands: encoding
+
+Files open in the editor are always read from the live buffer, so this only applies to closed files read straight off disk. UTF-8 (with or without a byte-order mark) and UTF-16 (with a byte-order mark) round-trip correctly. A file with no byte-order mark that isn't valid UTF-8 (e.g. a BOM-less ANSI/Windows-1252 file with special characters) is skipped rather than risk corrupting it — it shows up as "skipped" in the Output pane summary. Save it as UTF-8 to include it in the batch.
 
 ## Configuration
 

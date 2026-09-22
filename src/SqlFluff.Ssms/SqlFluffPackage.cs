@@ -35,6 +35,7 @@ namespace SqlFluff.Ssms
         private DocumentEvents _documentEvents;
         private IVsRunningDocumentTable _rdt;
         private uint _rdtCookie;
+        private CancellationTokenSource _folderBatchCts;
 
         // Used by MEF-composed editor components (e.g. the Light Bulb suggested-actions source) that
         // have no other way to reach this package's services.
@@ -173,9 +174,19 @@ namespace SqlFluff.Ssms
             }
         }
 
+        // Re-running a folder command while one is already in flight cancels it instead of
+        // starting a second one — the simplest way to offer a "Cancel" without a dedicated dialog.
         private void RunFolderAction(FolderBatchAction action)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+
+            if (_folderBatchCts != null)
+            {
+                OutputLog.SetStatus("SQLFluff: cancelling...");
+                _folderBatchCts.Cancel();
+                return;
+            }
+
             string folder = _editor.GetOpenFolderPath();
             if (string.IsNullOrEmpty(folder))
             {
@@ -209,13 +220,29 @@ namespace SqlFluff.Ssms
             }
 
             string verb = action == FolderBatchAction.Lint ? "linting" : action == FolderBatchAction.Fix ? "fixing" : "formatting";
-            OutputLog.SetStatus("SQLFluff: " + verb + " " + files.Count + " file(s)...");
+            OutputLog.SetStatus("SQLFluff: " + verb + " " + files.Count + " file(s)... (run the command again to cancel)");
 
-            FolderBatchSummary summary = await _folderBatch.RunAsync(folder, files, action, CancellationToken.None);
+            var cts = new CancellationTokenSource();
+            _folderBatchCts = cts;
+            var progress = new Progress<FolderBatchProgress>(p =>
+            {
+                ThreadHelper.ThrowIfNotOnUIThread();
+                OutputLog.SetStatus("SQLFluff: " + verb + " " + (p.Completed + 1) + "/" + p.Total + " - " + p.RelativePath);
+            });
+
+            FolderBatchSummary summary;
+            try
+            {
+                summary = await _folderBatch.RunAsync(folder, files, action, progress, cts.Token);
+            }
+            finally
+            {
+                _folderBatchCts = null;
+            }
 
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             OutputLog.Write(BuildSummaryLog(folder, action, summary));
-            OutputLog.SetStatus(BuildSummaryStatus(action, summary));
+            OutputLog.SetStatus((summary.WasCancelled ? "SQLFluff: cancelled. " : string.Empty) + BuildSummaryStatus(action, summary));
 
             if (action == FolderBatchAction.Lint && summary.TotalViolations > 0)
             {

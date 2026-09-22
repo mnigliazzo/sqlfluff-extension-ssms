@@ -28,7 +28,24 @@ namespace SqlFluff.Ssms.Services
         public int Skipped { get; set; }
         public int Failed { get; set; }
         public int TotalViolations { get; set; }
+        public bool WasCancelled { get; set; }
         public List<string> Details { get; } = new List<string>();
+    }
+
+    // Reported after each file so the caller can show live progress (see SqlFluffPackage.
+    // RunFolderActionAsync).
+    internal readonly struct FolderBatchProgress
+    {
+        public FolderBatchProgress(int completed, int total, string relativePath)
+        {
+            Completed = completed;
+            Total = total;
+            RelativePath = relativePath;
+        }
+
+        public int Completed { get; }
+        public int Total { get; }
+        public string RelativePath { get; }
     }
 
     // Drives Lint/Fix/Format across every .sql file under the open folder, not just open editor
@@ -125,20 +142,32 @@ namespace SqlFluff.Ssms.Services
             }
         }
 
-        public async Task<FolderBatchSummary> RunAsync(string folderRoot, IReadOnlyList<string> files, FolderBatchAction action, CancellationToken ct)
+        public async Task<FolderBatchSummary> RunAsync(
+            string folderRoot, IReadOnlyList<string> files, FolderBatchAction action,
+            IProgress<FolderBatchProgress> progress, CancellationToken ct)
         {
             var summary = new FolderBatchSummary { TotalFiles = files.Count };
 
-            foreach (string file in files)
+            for (int i = 0; i < files.Count; i++)
             {
-                ct.ThrowIfCancellationRequested();
+                string file = files[i];
+
+                if (ct.IsCancellationRequested)
+                {
+                    summary.WasCancelled = true;
+                    break;
+                }
+
+                progress?.Report(new FolderBatchProgress(i, files.Count, MakeRelativePath(folderRoot, file)));
+
                 try
                 {
                     await ProcessFileAsync(summary, folderRoot, file, action, ct);
                 }
                 catch (OperationCanceledException)
                 {
-                    throw;
+                    summary.WasCancelled = true;
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -212,7 +241,12 @@ namespace SqlFluff.Ssms.Services
             string text;
             try
             {
-                text = ReadFile(file, out _);
+                if (!TryReadFile(file, out text, out _, out string encodingError))
+                {
+                    summary.Skipped++;
+                    summary.Details.Add(MakeRelativePath(root, file) + ": skipped (" + encodingError + ")");
+                    return;
+                }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -254,7 +288,12 @@ namespace SqlFluff.Ssms.Services
             Encoding encoding;
             try
             {
-                original = ReadFile(file, out encoding);
+                if (!TryReadFile(file, out original, out encoding, out string encodingError))
+                {
+                    summary.Skipped++;
+                    summary.Details.Add(MakeRelativePath(root, file) + ": skipped (" + encodingError + ")");
+                    return;
+                }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -345,21 +384,56 @@ namespace SqlFluff.Ssms.Services
             view.VisualElement.Focus();
         }
 
-        // Only UTF-8 (with or without a BOM) is round-tripped faithfully; anything else is decoded
-        // as UTF-8 too, matching the assumption the rest of the extension already makes (see
-        // SqlFluffRunner's PYTHONUTF8/PYTHONIOENCODING handling) rather than adding full charset
-        // detection for what's an edge case for SQL source files.
-        private static string ReadFile(string path, out Encoding encoding)
+        // Reads a file for the folder-wide batch, detecting enough of its encoding to round-trip it
+        // without corruption: a UTF-8 BOM, a UTF-16 LE/BE BOM (both preserved on write), or —
+        // lacking any BOM — a strict UTF-8 decode (throwOnInvalidBytes), since that's what every
+        // other path in this extension already assumes (SqlFluffRunner's PYTHONUTF8/
+        // PYTHONIOENCODING handling). Anything else (e.g. a BOM-less ANSI/Windows-1252 file) can't
+        // be told apart reliably from UTF-8 without full charset detection, so it's reported as
+        // unsupported and left untouched rather than silently mis-decoded and corrupted on write.
+        private static bool TryReadFile(string path, out string text, out Encoding encoding, out string error)
         {
             byte[] bytes = File.ReadAllBytes(path);
+
             if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             {
                 encoding = new UTF8Encoding(true);
-                return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+                text = Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+                error = null;
+                return true;
             }
 
-            encoding = new UTF8Encoding(false);
-            return encoding.GetString(bytes);
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            {
+                encoding = Encoding.Unicode;
+                text = encoding.GetString(bytes, 2, bytes.Length - 2);
+                error = null;
+                return true;
+            }
+
+            if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            {
+                encoding = Encoding.BigEndianUnicode;
+                text = encoding.GetString(bytes, 2, bytes.Length - 2);
+                error = null;
+                return true;
+            }
+
+            try
+            {
+                var strictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+                text = strictUtf8.GetString(bytes);
+                encoding = new UTF8Encoding(false);
+                error = null;
+                return true;
+            }
+            catch (DecoderFallbackException)
+            {
+                text = null;
+                encoding = null;
+                error = "not valid UTF-8 and no byte-order mark found; save it as UTF-8 to include it";
+                return false;
+            }
         }
 
         private static string DetectDominantNewline(string text)

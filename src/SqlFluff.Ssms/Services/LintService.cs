@@ -190,20 +190,22 @@ namespace SqlFluff.Ssms.Services
 
         public Task FixAsync(IWpfTextView view, ITextBuffer buffer, string path)
         {
-            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: null);
+            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: null, targetLine: null);
         }
 
         public Task FormatAsync(IWpfTextView view, ITextBuffer buffer, string path)
         {
-            return RewriteAsync(view, buffer, path, RewriteMode.Format, ruleFilter: null);
+            return RewriteAsync(view, buffer, path, RewriteMode.Format, ruleFilter: null, targetLine: null);
         }
 
-        // Restricts the fix to a single rule code (e.g. the one under a specific squiggle), still
-        // over the whole document/selection like FixAsync — sqlfluff has no way to target a single
-        // violation instance by position, it can only fix by rule across a span of valid SQL.
-        public Task FixRuleAsync(IWpfTextView view, ITextBuffer buffer, string path, string ruleCode)
+        // Restricts the fix to a single rule code (e.g. the one under a specific squiggle) AND, via
+        // targetLine, to only the diff hunk touching that violation's line — sqlfluff has no way to
+        // target a single violation instance by position, so it still fixes every occurrence of the
+        // rule internally, but only the hunk overlapping targetLine is kept; the rest reverts back
+        // to the original text. targetLine is 1-based, relative to the whole document.
+        public Task FixRuleAsync(IWpfTextView view, ITextBuffer buffer, string path, string ruleCode, int targetLine)
         {
-            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: ruleCode);
+            return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: ruleCode, targetLine: targetLine);
         }
 
         private enum RewriteMode
@@ -340,7 +342,7 @@ namespace SqlFluff.Ssms.Services
             return TrySaveDocumentAsync(path);
         }
 
-        private async Task RewriteAsync(IWpfTextView view, ITextBuffer buffer, string path, RewriteMode mode, string ruleFilter)
+        private async Task RewriteAsync(IWpfTextView view, ITextBuffer buffer, string path, RewriteMode mode, string ruleFilter, int? targetLine)
         {
             string verb = mode == RewriteMode.Format ? "format" : "fix";
             string verbCapitalized = mode == RewriteMode.Format ? "Format" : "Fix";
@@ -410,6 +412,13 @@ namespace SqlFluff.Ssms.Services
             if (isSelection && !EndsWithNewline(original))
             {
                 rewritten = rewritten.TrimEnd('\r', '\n');
+            }
+
+            if (targetLine.HasValue && !string.Equals(rewritten, original, StringComparison.Ordinal))
+            {
+                int targetStartLineInDoc = snapshot.GetLineFromPosition(target.Start).LineNumber; // 0-based
+                int relativeLine = targetLine.Value - targetStartLineInDoc; // 1-based, relative to `original`
+                rewritten = SelectHunkForLine(original, rewritten, newline, relativeLine);
             }
 
             if (string.Equals(rewritten, original, StringComparison.Ordinal))
@@ -619,6 +628,21 @@ namespace SqlFluff.Ssms.Services
         private static bool EndsWithNewline(string text)
         {
             return text.Length > 0 && (text[text.Length - 1] == '\n' || text[text.Length - 1] == '\r');
+        }
+
+        // Keeps only the diff hunk (see Core/LineDiff.cs) touching `targetLine1Based`, reverting
+        // every other hunk back to `original` — this is what makes FixRuleAsync a best-effort
+        // single-violation fix instead of "every occurrence of this rule".
+        private static string SelectHunkForLine(string original, string rewritten, string newline, int targetLine1Based)
+        {
+            string[] originalLines = original.Split(new[] { newline }, StringSplitOptions.None);
+            string[] rewrittenLines = rewritten.Split(new[] { newline }, StringSplitOptions.None);
+
+            IReadOnlyList<LineHunk> hunks = LineDiff.ComputeHunks(originalLines, rewrittenLines);
+            IReadOnlyList<string> merged = LineDiff.ApplySelectedHunks(
+                originalLines, hunks, h => LineDiff.HunkTouchesLine(h, targetLine1Based));
+
+            return string.Join(newline, merged);
         }
 
         // Replace only the differing middle so the caret, scroll position and undo stack stay sensible.
