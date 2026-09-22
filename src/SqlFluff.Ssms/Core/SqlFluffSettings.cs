@@ -21,5 +21,6 @@ namespace SqlFluff.Ssms.Core
         public int TypeDelayMs { get; set; }
         public DiagnosticSeverity Severity { get; set; }
         public bool AutoSaveAfterFix { get; set; }
+        public bool FormatOnSave { get; set; }
     }
 }

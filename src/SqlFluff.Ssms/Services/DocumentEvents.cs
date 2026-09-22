@@ -112,10 +112,33 @@ namespace SqlFluff.Ssms.Services
                 .Task.FileAndForget("sqlfluff/lint");
         }
 
+        public int OnBeforeSave(uint docCookie)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (_package.GetSettings().FormatOnSave &&
+                _editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out string path))
+            {
+                try
+                {
+                    // OnBeforeSave is a synchronous COM callback: the save proceeds as soon as this
+                    // returns, so formatting has to complete first. JoinableTaskFactory.Run pumps the
+                    // UI thread's message queue while it waits, which is what avoids deadlocking here
+                    // (a plain .Result/.Wait() on an awaiter that needs the UI thread would hang).
+                    ThreadHelper.JoinableTaskFactory.Run(() => _lint.FormatForSaveAsync(buffer, path));
+                }
+                catch (Exception ex)
+                {
+                    // Never let a formatting failure block or corrupt the save.
+                    OutputLog.Write("Format on save failed: " + ex.Message);
+                }
+            }
+
+            return VSConstants.S_OK;
+        }
+
         public int OnAfterFirstDocumentLock(uint docCookie, uint dwRDTLockType, uint dwReadLocksRemaining, uint dwEditLocksRemaining) => VSConstants.S_OK;
         public int OnAfterAttributeChange(uint docCookie, uint grfAttribs) => VSConstants.S_OK;
         public int OnAfterAttributeChangeEx(uint docCookie, uint grfAttribs, IVsHierarchy pHierOld, uint itemidOld, string pszMkDocumentOld, IVsHierarchy pHierNew, uint itemidNew, string pszMkDocumentNew) => VSConstants.S_OK;
         public int OnAfterDocumentWindowHide(uint docCookie, IVsWindowFrame pFrame) => VSConstants.S_OK;
-        public int OnBeforeSave(uint docCookie) => VSConstants.S_OK;
     }
 }

@@ -139,6 +139,61 @@ namespace SqlFluff.Ssms.Services
             Format,
         }
 
+        // Runs Format synchronously from a save event (IVsRunningDocTableEvents3.OnBeforeSave),
+        // so it must return before the caller proceeds with the actual save. No IWpfTextView
+        // involved (a save isn't necessarily tied to a focused view) and always the whole
+        // document (no selection concept applies to a save). Never throws: a formatting failure
+        // must not block or corrupt the save, so callers get a bool and the buffer is left as-is
+        // on failure.
+        public async Task<bool> FormatForSaveAsync(ITextBuffer buffer, string path)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (!buffer.CheckEditAccess())
+            {
+                return false;
+            }
+
+            SqlFluffSettings settings = _package.GetSettings();
+            ITextSnapshot snapshot = buffer.CurrentSnapshot;
+            string original = snapshot.GetText();
+
+            if (string.IsNullOrWhiteSpace(original))
+            {
+                return true;
+            }
+
+            string formatted;
+            try
+            {
+                formatted = await Task.Run(() => SqlFluffRunner.FormatAsync(original, path, settings, CancellationToken.None));
+            }
+            catch (SqlFluffException ex)
+            {
+                OutputLog.Write("Format on save failed: " + ex.Message);
+                return false;
+            }
+
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (buffer.CurrentSnapshot.Version.VersionNumber != snapshot.Version.VersionNumber)
+            {
+                OutputLog.Write("Format on save skipped: the document changed while formatting was running.");
+                return false;
+            }
+
+            string newline = DominantNewline(snapshot);
+            formatted = formatted.Replace("\r\n", "\n").Replace("\n", newline);
+
+            if (string.Equals(formatted, original, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            ApplyMinimalEdit(buffer, 0, original, formatted);
+            return true;
+        }
+
         private async Task RewriteAsync(IWpfTextView view, ITextBuffer buffer, string path, RewriteMode mode)
         {
             string verb = mode == RewriteMode.Format ? "format" : "fix";

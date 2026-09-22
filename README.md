@@ -62,6 +62,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 | Dialect | `tsql` |
 | Timeout | 60 seconds |
 | Auto-save after fix | ✗ (Fix/Format leave the document dirty; you save manually) |
+| Format on save | ✗ (runs Format before the file is written when you save, like "format on save" in other editors) |
 | Lint on open | ✓ |
 | Lint on save | ✓ |
 | Lint while typing | ✗ |

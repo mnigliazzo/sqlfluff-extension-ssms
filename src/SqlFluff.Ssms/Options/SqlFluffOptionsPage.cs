@@ -59,6 +59,11 @@ namespace SqlFluff.Ssms.Options
         public bool LintOnSave { get; set; } = true;
 
         [Category(TriggersCategory)]
+        [DisplayName("Format on save")]
+        [Description("Run Format (the safe, stable rule subset) on a SQL document before it is saved, so the formatted result is what gets written to disk. Off by default. If formatting fails, the save proceeds with the document unchanged.")]
+        public bool FormatOnSave { get; set; } = false;
+
+        [Category(TriggersCategory)]
         [DisplayName("Lint while typing")]
         [Description("Lint automatically after you stop typing. SQLFluff can be slow on large scripts, so this is off by default.")]
         public bool LintOnType { get; set; } = false;
@@ -95,6 +100,7 @@ namespace SqlFluff.Ssms.Options
                 TypeDelayMs = System.Math.Max(300, TypeDelayMs),
                 Severity = (DiagnosticSeverity)(int)Severity,
                 AutoSaveAfterFix = AutoSaveAfterFix,
+                FormatOnSave = FormatOnSave,
             };
         }
     }
