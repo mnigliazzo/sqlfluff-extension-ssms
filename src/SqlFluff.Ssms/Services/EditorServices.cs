@@ -112,6 +112,23 @@ namespace SqlFluff.Ssms.Services
             return _documents.TryGetTextDocument(buffer, out ITextDocument document) ? document.FilePath : null;
         }
 
+        // Root of the currently open folder or solution, if any — including an "Open Folder"
+        // workspace, which the shell represents as a solution directory too. Used to find a
+        // project's .sqlfluff for documents with no on-disk path of their own to walk up from
+        // (an unsaved new document).
+        public string GetOpenFolderPath()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (_serviceProvider.GetService(typeof(SVsSolution)) is IVsSolution solution &&
+                ErrorHandler.Succeeded(solution.GetSolutionInfo(out string solutionDirectory, out _, out _)) &&
+                !string.IsNullOrEmpty(solutionDirectory))
+            {
+                return solutionDirectory;
+            }
+
+            return null;
+        }
+
         // path is accepted for backward compatibility with existing call sites, which already
         // resolve it; the actual check also has its own fallback via _documents.
         private bool IsSql(ITextBuffer buffer, string path)

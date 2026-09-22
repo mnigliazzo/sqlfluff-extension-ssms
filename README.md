@@ -60,6 +60,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 |---------|---------|
 | Executable | `sqlfluff` (auto-detect) |
 | Dialect | `tsql` |
+| Config file | *(empty)* — fallback only, see below |
 | Timeout | 60 seconds |
 | Auto-save after fix | ✗ (Fix/Format leave the document dirty; you save manually) |
 | Format on save | ✗ (runs Format before the file is written when you save, like "format on save" in other editors) |
@@ -67,6 +68,8 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 | Lint on save | ✓ |
 | Lint while typing | ✗ |
 | Report violations as | Warning |
+
+**Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
 
 ## Building
 

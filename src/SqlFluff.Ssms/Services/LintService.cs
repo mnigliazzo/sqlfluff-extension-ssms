@@ -68,7 +68,7 @@ namespace SqlFluff.Ssms.Services
             var cts = new CancellationTokenSource();
             state.Lint = cts;
 
-            SqlFluffSettings settings = _package.GetSettings();
+            SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
             ITextSnapshot snapshot = buffer.CurrentSnapshot;
             string text = snapshot.GetText();
 
@@ -154,7 +154,7 @@ namespace SqlFluff.Ssms.Services
                 return false;
             }
 
-            SqlFluffSettings settings = _package.GetSettings();
+            SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
             ITextSnapshot snapshot = buffer.CurrentSnapshot;
             string original = snapshot.GetText();
 
@@ -207,7 +207,7 @@ namespace SqlFluff.Ssms.Services
                 return;
             }
 
-            SqlFluffSettings settings = _package.GetSettings();
+            SqlFluffSettings settings = ResolveEffectiveSettings(_package.GetSettings(), path);
             ITextSnapshot snapshot = buffer.CurrentSnapshot;
 
             Span target = new Span(0, snapshot.Length);
@@ -427,6 +427,39 @@ namespace SqlFluff.Ssms.Services
         {
             int index = message.IndexOfAny(new[] { '\r', '\n' });
             return index < 0 ? message : message.Substring(0, index);
+        }
+
+        // Replaces ConfigFile with whatever SqlFluffConfigResolver decides should actually be
+        // used: a .sqlfluff discovered near the document (if it exists on disk) or the open
+        // folder (covers an unsaved new document), falling back to the Options-configured path.
+        // Resolving it here, once, keeps SqlFluffRunner itself free of any VS SDK dependency.
+        private SqlFluffSettings ResolveEffectiveSettings(SqlFluffSettings settings, string path)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string openFolderPath = _editor.GetOpenFolderPath();
+            string resolvedConfigFile = SqlFluffConfigResolver.Resolve(path, openFolderPath, settings.ConfigFile);
+
+            if (string.Equals(resolvedConfigFile, settings.ConfigFile, StringComparison.Ordinal))
+            {
+                return settings;
+            }
+
+            return new SqlFluffSettings
+            {
+                ExecutablePath = settings.ExecutablePath,
+                Dialect = settings.Dialect,
+                ConfigFile = resolvedConfigFile,
+                Rules = settings.Rules,
+                ExcludeRules = settings.ExcludeRules,
+                TimeoutSeconds = settings.TimeoutSeconds,
+                LintOnOpen = settings.LintOnOpen,
+                LintOnSave = settings.LintOnSave,
+                LintOnType = settings.LintOnType,
+                TypeDelayMs = settings.TypeDelayMs,
+                Severity = settings.Severity,
+                AutoSaveAfterFix = settings.AutoSaveAfterFix,
+                FormatOnSave = settings.FormatOnSave,
+            };
         }
 
         private static string DominantNewline(ITextSnapshot snapshot)

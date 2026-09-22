@@ -242,6 +242,12 @@ namespace SqlFluff.Ssms.Core
 
             sb.Append(" --disable-progress-bar");
             AppendOption(sb, "--dialect", s.Dialect);
+            // s.ConfigFile arrives here already resolved by SqlFluffConfigResolver (see
+            // LintService.ResolveEffectiveSettings) — a .sqlfluff discovered near the document or
+            // the open folder, falling back to the Options-configured path. .sqlfluffignore needs
+            // no equivalent handling: sqlfluff has no --ignore-path flag to begin with, and it
+            // already auto-discovers .sqlfluffignore the same way, driven entirely by
+            // --stdin-filename below.
             AppendOption(sb, "--config", s.ConfigFile);
             AppendOption(sb, "--rules", s.Rules);
             AppendOption(sb, "--exclude-rules", s.ExcludeRules);

@@ -24,6 +24,7 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\ArgumentQuoting.cs" Link="Sources\ArgumentQuoting.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\LintJsonParser.cs" Link="Sources\LintJsonParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\LintViolation.cs" Link="Sources\LintViolation.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffConfigResolver.cs" Link="Sources\SqlFluffConfigResolver.cs" />
   </ItemGroup>
 
 </Project>

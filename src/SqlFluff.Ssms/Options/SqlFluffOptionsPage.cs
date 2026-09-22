@@ -25,7 +25,7 @@ namespace SqlFluff.Ssms.Options
 
         [Category(ExecutionCategory)]
         [DisplayName("Config file")]
-        [Description("Optional path to a .sqlfluff / pyproject.toml file passed as --config. Leave empty to let SQLFluff discover config next to the SQL file and in your user profile.")]
+        [Description("Fallback .sqlfluff path used only when no .sqlfluff is found by walking up from the open document's folder (e.g. an unsaved new document, or one outside any project that has its own .sqlfluff). A .sqlfluff found near the document always takes priority over this. Leave empty to rely entirely on that discovery plus SQLFluff's own defaults.")]
         public string ConfigFile { get; set; } = string.Empty;
 
         [Category(ExecutionCategory)]
