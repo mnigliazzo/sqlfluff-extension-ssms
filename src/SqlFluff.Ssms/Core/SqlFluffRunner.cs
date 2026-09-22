@@ -271,7 +271,7 @@ namespace SqlFluff.Ssms.Core
                 string dir = string.IsNullOrEmpty(filePath) ? null : Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
                 {
-                    return dir;
+                    return SqlFluffWorkingDirectoryResolver.Resolve(dir);
                 }
             }
             catch (ArgumentException)

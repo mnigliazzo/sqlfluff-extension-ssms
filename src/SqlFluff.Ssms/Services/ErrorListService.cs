@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
 using SqlFluff.Ssms.Core;
@@ -38,7 +39,7 @@ namespace SqlFluff.Ssms.Services
                     ITextSnapshotLine line = set.Snapshot.GetLineFromPosition(Math.Min(entry.Span.Start, set.Snapshot.Length));
                     var task = new ErrorTask
                     {
-                        Text = entry.Violation.Message,
+                        Text = BuildText(path, entry.Violation.Message),
                         Document = path,
                         Line = line.LineNumber,
                         Column = Math.Max(0, entry.Span.Start - line.Start.Position),
@@ -81,7 +82,7 @@ namespace SqlFluff.Ssms.Services
                 {
                     var task = new ErrorTask
                     {
-                        Text = violation.Message,
+                        Text = BuildText(path, violation.Message),
                         Document = path,
                         Line = Math.Max(0, violation.StartLine - 1),
                         Column = Math.Max(0, violation.StartColumn - 1),
@@ -143,6 +144,34 @@ namespace SqlFluff.Ssms.Services
 
                 _tasksByPath.Remove(key);
             }
+        }
+
+        // The Error List's "File" column shows just the bare filename with no path context (no
+        // project/hierarchy is attached to a plain ErrorTask.Document string), so two files with
+        // the same name in different folders — e.g. a migration script and its rollback script
+        // both named "001.hola.sql" — are otherwise indistinguishable in the list. Prefixing the
+        // immediate parent folder disambiguates them without the noise of a full path.
+        private static string BuildText(string path, string message)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return message;
+            }
+
+            string fileName;
+            string parent;
+            try
+            {
+                fileName = Path.GetFileName(path);
+                parent = Path.GetFileName(Path.GetDirectoryName(path));
+            }
+            catch (ArgumentException)
+            {
+                return message;
+            }
+
+            string shortPath = string.IsNullOrEmpty(parent) ? fileName : Path.Combine(parent, fileName);
+            return string.IsNullOrEmpty(shortPath) ? message : "[" + shortPath + "] " + message;
         }
 
         private static TaskErrorCategory CategoryFor(LintViolation violation, DiagnosticSeverity severity)
