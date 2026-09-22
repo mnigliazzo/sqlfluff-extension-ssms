@@ -35,9 +35,6 @@
       <Group guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" priority="0x0200">
         <Parent guid="guidSqlFluffCmdSet" id="SqlFluffSubMenu" />
       </Group>
-      <Group guid="guidSqlFluffCmdSet" id="ContextMenuGroup" priority="0x0600">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
-      </Group>
       <Group guid="guidSqlFluffCmdSet" id="ToolbarGroup" priority="0x0000">
         <Parent guid="guidSqlFluffCmdSet" id="SqlFluffToolbar" />
       </Group>
@@ -129,15 +126,6 @@
 
   <CommandPlacements>
     <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidLint" priority="0x0100">
-      <Parent guid="guidSqlFluffCmdSet" id="ContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidFix" priority="0x0101">
-      <Parent guid="guidSqlFluffCmdSet" id="ContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidFormat" priority="0x0102">
-      <Parent guid="guidSqlFluffCmdSet" id="ContextMenuGroup" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidLint" priority="0x0100">
       <Parent guid="guidSqlFluffCmdSet" id="ToolbarGroup" />
     </CommandPlacement>
     <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidFix" priority="0x0101">
@@ -164,7 +152,6 @@
       <IDSymbol name="ToolsMenuGroup" value="0x1000" />
       <IDSymbol name="SubMenuActionsGroup" value="0x1001" />
       <IDSymbol name="SubMenuOptionsGroup" value="0x1002" />
-      <IDSymbol name="ContextMenuGroup" value="0x1003" />
       <IDSymbol name="ToolbarGroup" value="0x1004" />
       <IDSymbol name="SubMenuFolderGroup" value="0x1005" />
       <IDSymbol name="SqlFluffSubMenu" value="0x2000" />
