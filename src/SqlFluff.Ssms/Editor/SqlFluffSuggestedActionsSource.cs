@@ -59,7 +59,7 @@ namespace SqlFluff.Ssms.Editor
         public IEnumerable<SuggestedActionSet> GetSuggestedActions(
             ISuggestedActionCategorySet requestedActionCategories, SnapshotSpan range, CancellationToken cancellationToken)
         {
-            ViolationEntry match = FindMatch(range);
+            ViolationEntry match = FindMatch(range, out ITextSnapshot matchSnapshot);
             if (match == null)
             {
                 yield break;
@@ -72,6 +72,7 @@ namespace SqlFluff.Ssms.Editor
             if (!match.Violation.IsParseError)
             {
                 actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code, match.Violation.StartLine));
+                actions.Add(new SqlFluffNoqaAction(_view, _buffer, matchSnapshot, match.Span, match.Violation.Code));
             }
 
             actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: false));
@@ -84,7 +85,7 @@ namespace SqlFluff.Ssms.Editor
         public Task<bool> HasSuggestedActionsAsync(
             ISuggestedActionCategorySet requestedActionCategories, SnapshotSpan range, CancellationToken cancellationToken)
         {
-            return Task.FromResult(FindMatch(range) != null);
+            return Task.FromResult(FindMatch(range, out _) != null);
         }
 
         public bool TryGetTelemetryId(out Guid telemetryId)
@@ -97,9 +98,10 @@ namespace SqlFluff.Ssms.Editor
         {
         }
 
-        private ViolationEntry FindMatch(SnapshotSpan range)
+        private ViolationEntry FindMatch(SnapshotSpan range, out ITextSnapshot snapshot)
         {
             ViolationSet set = ViolationStore.Get(_buffer);
+            snapshot = set?.Snapshot;
             if (set == null || set.Entries.Count == 0)
             {
                 return null;
@@ -188,6 +190,70 @@ namespace SqlFluff.Ssms.Editor
             ThreadHelper.JoinableTaskFactory
                 .RunAsync(operation)
                 .Task.FileAndForget(_ruleCode != null ? "sqlfluff/lightbulb-fix-rule" : _isFormat ? "sqlfluff/lightbulb-format" : "sqlfluff/lightbulb-fix");
+        }
+
+        public void Dispose()
+        {
+        }
+
+        public bool TryGetTelemetryId(out Guid telemetryId)
+        {
+            telemetryId = Guid.Empty;
+            return false;
+        }
+    }
+
+    // Inserts a `-- noqa: <rule>` comment on the violation's line instead of rewriting SQL — see
+    // LintService.SuppressViolationAsync / NoqaCommentEditor for why this stays a thin wrapper
+    // around sqlfluff's own noqa mechanism rather than a separate suppression system.
+    internal sealed class SqlFluffNoqaAction : ISuggestedAction
+    {
+        private readonly IWpfTextView _view;
+        private readonly ITextBuffer _buffer;
+        private readonly ITextSnapshot _snapshot;
+        private readonly Span _span;
+        private readonly string _ruleCode;
+
+        public SqlFluffNoqaAction(ITextView view, ITextBuffer buffer, ITextSnapshot snapshot, Span span, string ruleCode)
+        {
+            _view = view as IWpfTextView;
+            _buffer = buffer;
+            _snapshot = snapshot;
+            _span = span;
+            _ruleCode = ruleCode;
+        }
+
+        public string DisplayText => "Suppress this issue with SQLFluff (-- noqa: " + _ruleCode + ")";
+        public string IconAutomationText => null;
+        public ImageMoniker IconMoniker => default;
+        public string InputGestureText => null;
+        public bool HasActionSets => false;
+        public bool HasPreview => false;
+
+        public Task<IEnumerable<SuggestedActionSet>> GetActionSetsAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(Enumerable.Empty<SuggestedActionSet>());
+        }
+
+        public Task<object> GetPreviewAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult<object>(null);
+        }
+
+        public void Invoke(CancellationToken cancellationToken)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (_view == null || SqlFluffPackage.Instance == null)
+            {
+                return;
+            }
+
+            string path = SqlFluffPackage.Instance.EditorServices.GetPath(_buffer);
+            LintService lint = SqlFluffPackage.Instance.LintService;
+
+            ThreadHelper.JoinableTaskFactory
+                .RunAsync(() => lint.SuppressViolationAsync(_buffer, path, _snapshot, _span, _ruleCode))
+                .Task.FileAndForget("sqlfluff/lightbulb-noqa");
         }
 
         public void Dispose()

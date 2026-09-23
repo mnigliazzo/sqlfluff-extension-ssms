@@ -14,7 +14,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Fix**: Apply all of SQLFluff's fixable rules to the selection or document
 - **Format**: Apply only SQLFluff's safe, stable subset of rules (like a formatter, not a full auto-fixer)
 - **Folder-wide commands**: run Lint/Fix/Format across every `.sql` file under the open folder, not just the active document
-- **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" that fixes just that one violation (best-effort — see below), plus whole-document Fix/Format
+- **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" that fixes just that one violation (best-effort — see below), a "Suppress this issue" that inserts an inline `-- noqa: <rule>` comment (sqlfluff's own suppression mechanism, so a pipeline running plain `sqlfluff` honors it the same way), plus whole-document Fix/Format
 - **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect

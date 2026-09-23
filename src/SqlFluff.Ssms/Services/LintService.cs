@@ -208,6 +208,44 @@ namespace SqlFluff.Ssms.Services
             return RewriteAsync(view, buffer, path, RewriteMode.Fix, ruleFilter: ruleCode, targetLine: targetLine);
         }
 
+        // Inserts/merges a `-- noqa: <rule>` comment on the violation's line instead of rewriting
+        // SQL — a thin wrapper around sqlfluff's own noqa mechanism (NoqaCommentEditor), not a
+        // separate suppression system, so a pipeline running plain `sqlfluff lint` on the saved file
+        // honors the same suppression. violationSnapshot/violationSpan locate the violation as of
+        // the lint that found it; TranslateTo re-maps that onto whatever the buffer's current
+        // snapshot is by the time the Light Bulb action is invoked.
+        public async Task SuppressViolationAsync(ITextBuffer buffer, string path, ITextSnapshot violationSnapshot, Span violationSpan, string ruleCode)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (!buffer.CheckEditAccess())
+            {
+                ReportFailure("The document is read-only.", userInitiated: true);
+                return;
+            }
+
+            ITextSnapshot current = buffer.CurrentSnapshot;
+            SnapshotSpan translated = new SnapshotSpan(violationSnapshot, violationSpan).TranslateTo(current, SpanTrackingMode.EdgeInclusive);
+            ITextSnapshotLine line = current.GetLineFromPosition(translated.Start.Position);
+
+            string original = line.GetText();
+            string updated = NoqaCommentEditor.AddNoqa(original, ruleCode);
+            if (string.Equals(updated, original, StringComparison.Ordinal))
+            {
+                OutputLog.SetStatus("SQLFluff: " + ruleCode + " is already suppressed on this line.");
+                return;
+            }
+
+            using (ITextEdit edit = buffer.CreateEdit())
+            {
+                edit.Replace(line.Extent, updated);
+                edit.Apply();
+            }
+
+            OutputLog.SetStatus("SQLFluff: suppressed " + ruleCode + ". Press Ctrl+S to save.");
+            await LintAsync(buffer, path, userInitiated: false);
+        }
+
         private enum RewriteMode
         {
             Fix,

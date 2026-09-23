@@ -27,6 +27,7 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffConfigResolver.cs" Link="Sources\SqlFluffConfigResolver.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\LineDiff.cs" Link="Sources\LineDiff.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffWorkingDirectoryResolver.cs" Link="Sources\SqlFluffWorkingDirectoryResolver.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\NoqaCommentEditor.cs" Link="Sources\NoqaCommentEditor.cs" />
   </ItemGroup>
 
 </Project>
