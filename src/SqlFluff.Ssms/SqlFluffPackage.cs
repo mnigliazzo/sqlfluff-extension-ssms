@@ -124,6 +124,11 @@ namespace SqlFluff.Ssms
                 return;
             }
 
+            // Broad catch is deliberate: this runs inline in InitializeAsync, so anything left
+            // uncaught fails the whole package load (see DocumentEvents.OnBeforeSave for the same
+            // must-not-fail reasoning). SSMS 22's DTE/CommandBars implementation is exactly the kind
+            // of "doesn't always behave like a plain VS shell" surface where an unexpected exception
+            // type is plausible, not just the handful of COM-ish ones.
             try
             {
                 var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
@@ -131,9 +136,13 @@ namespace SqlFluff.Ssms
                 CommandBar toolbar = commandBars["SQLFluff"];
                 toolbar.Visible = true;
             }
-            catch (Exception ex) when (ex is COMException || ex is ArgumentException || ex is NullReferenceException || ex is InvalidCastException)
+            catch (Exception ex)
             {
+                // Only mark it "handled" once the user has actually had a chance to see the
+                // toolbar - if showing it failed, keep retrying on future startups rather than
+                // silently giving up with nothing but a buried Output pane line.
                 OutputLog.Write("SQLFluff: couldn't show the toolbar automatically - enable it manually via right-click on any toolbar > SQLFluff. (" + ex.Message + ")");
+                return;
             }
 
             page.ToolbarShownOnce = true;
