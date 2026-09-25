@@ -90,6 +90,13 @@ namespace SqlFluff.Ssms.Options
         [Description("Check GitHub for a newer version of the SQLFluff for SSMS extension itself when SSMS starts, and note it in the SQLFluff output pane and status bar if one is found. Never downloads or installs anything on its own — use SQLFluff > Check for Updates... to do that.")]
         public bool CheckForUpdatesOnStartup { get; set; } = true;
 
+        // Not user-facing. The SQLFluff toolbar's `DefaultDocked` CommandFlag (SqlFluffPackage.vsct)
+        // doesn't reliably make SSMS 22 show it on its own — see SqlFluffPackage.EnsureToolbarVisibleOnce,
+        // which forces it visible via DTE.CommandBars exactly once and flips this so a user who later
+        // hides it isn't fought on every startup.
+        [Browsable(false)]
+        public bool ToolbarShownOnce { get; set; } = false;
+
         public override void SaveSettingsToStorage()
         {
             base.SaveSettingsToStorage();

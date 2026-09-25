@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.CommandBars;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
@@ -87,6 +88,8 @@ namespace SqlFluff.Ssms
             _rdt.AdviseRunningDocTableEvents(_documentEvents, out _rdtCookie);
             _documentEvents.AttachToOpenDocuments();
 
+            EnsureToolbarVisibleOnce();
+
             // Also visible any time via Tools > Options > SQLFluff > Extension version.
             OutputLog.Write("SQLFluff for SSMS v" + GetType().Assembly.GetName().Version.ToString(3) + " loaded.");
 
@@ -105,6 +108,36 @@ namespace SqlFluff.Ssms
 
                 await CheckSqlFluffAvailabilityAsync();
             }).Task.FileAndForget("sqlfluff/startup-checks");
+        }
+
+        // The toolbar's DefaultDocked CommandFlag in SqlFluffPackage.vsct is supposed to make VS show
+        // it automatically the first time the package loads, but SSMS 22 doesn't reliably honor that
+        // (issue #27 found the same kind of gap for the query editor's context menu - SSMS 22 doesn't
+        // always behave like a plain VS shell for command UI). Force it visible via DTE.CommandBars
+        // once, then leave the user's own show/hide choice alone from then on.
+        private void EnsureToolbarVisibleOnce()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
+            if (page.ToolbarShownOnce)
+            {
+                return;
+            }
+
+            try
+            {
+                var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
+                var commandBars = (CommandBars)dte.CommandBars;
+                CommandBar toolbar = commandBars["SQLFluff"];
+                toolbar.Visible = true;
+            }
+            catch (Exception ex) when (ex is COMException || ex is ArgumentException || ex is NullReferenceException || ex is InvalidCastException)
+            {
+                OutputLog.Write("SQLFluff: couldn't show the toolbar automatically - enable it manually via right-click on any toolbar > SQLFluff. (" + ex.Message + ")");
+            }
+
+            page.ToolbarShownOnce = true;
+            page.SaveSettingsToStorage();
         }
 
         private async Task CheckSqlFluffAvailabilityAsync()
