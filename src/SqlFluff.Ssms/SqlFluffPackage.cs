@@ -90,14 +90,21 @@ namespace SqlFluff.Ssms
             // Also visible any time via Tools > Options > SQLFluff > Extension version.
             OutputLog.Write("SQLFluff for SSMS v" + GetType().Assembly.GetName().Version.ToString(3) + " loaded.");
 
-            // Non-blocking: warn once if sqlfluff isn't reachable, instead of waiting for the first Lint/Fix to fail.
-            JoinableTaskFactory.RunAsync(CheckSqlFluffAvailabilityAsync).Task.FileAndForget("sqlfluff/availability-check");
-
-            // Non-blocking, and silent unless a newer release is actually found (Tools > Options > SQLFluff > Updates).
-            if (GetSettings().CheckForUpdatesOnStartup)
+            // Non-blocking. Sequenced rather than two independent fire-and-forget tasks: both may
+            // call OutputLog.SetStatus, and running them concurrently would let whichever finishes
+            // last silently clobber the other's status bar text. The update notice (silent unless
+            // CheckForUpdatesOnStartup finds something, and never prompts on its own) goes first so
+            // that sqlfluff-not-found — the more actionable warning, since nothing lints until it's
+            // fixed — is always the one left showing if both have something to say.
+            JoinableTaskFactory.RunAsync(async () =>
             {
-                JoinableTaskFactory.RunAsync(() => CheckForUpdatesAsync(userInitiated: false)).Task.FileAndForget("sqlfluff/update-check");
-            }
+                if (GetSettings().CheckForUpdatesOnStartup)
+                {
+                    await CheckForUpdatesAsync(userInitiated: false);
+                }
+
+                await CheckSqlFluffAvailabilityAsync();
+            }).Task.FileAndForget("sqlfluff/startup-checks");
         }
 
         private async Task CheckSqlFluffAvailabilityAsync()
