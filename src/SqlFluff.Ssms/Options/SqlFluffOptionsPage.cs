@@ -12,6 +12,7 @@ namespace SqlFluff.Ssms.Options
         private const string ExecutionCategory = "SQLFluff";
         private const string TriggersCategory = "Automatic linting";
         private const string DisplayCategory = "Display";
+        private const string UpdatesCategory = "Updates";
 
         // Read from the running assembly's own metadata rather than a source-checked-in
         // constant: the version is never committed to AssemblyInfo.cs for a given release (see
@@ -84,6 +85,11 @@ namespace SqlFluff.Ssms.Options
         [Description("How rule violations are shown in the Error List and as squiggles. Parse errors are always shown as errors.")]
         public OptionSeverity Severity { get; set; } = OptionSeverity.Warning;
 
+        [Category(UpdatesCategory)]
+        [DisplayName("Check for updates on startup")]
+        [Description("Check GitHub for a newer version of the SQLFluff for SSMS extension itself when SSMS starts, and note it in the SQLFluff output pane and status bar if one is found. Never downloads or installs anything on its own — use SQLFluff > Check for Updates... to do that.")]
+        public bool CheckForUpdatesOnStartup { get; set; } = true;
+
         public override void SaveSettingsToStorage()
         {
             base.SaveSettingsToStorage();
@@ -106,6 +112,7 @@ namespace SqlFluff.Ssms.Options
                 Severity = (DiagnosticSeverity)(int)Severity,
                 AutoSaveAfterFix = AutoSaveAfterFix,
                 FormatOnSave = FormatOnSave,
+                CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
             };
         }
     }

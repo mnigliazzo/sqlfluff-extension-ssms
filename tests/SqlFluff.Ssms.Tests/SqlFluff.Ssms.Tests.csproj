@@ -28,6 +28,8 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\LineDiff.cs" Link="Sources\LineDiff.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffWorkingDirectoryResolver.cs" Link="Sources\SqlFluffWorkingDirectoryResolver.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\NoqaCommentEditor.cs" Link="Sources\NoqaCommentEditor.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\UpdateInfo.cs" Link="Sources\UpdateInfo.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\UpdateInfoParser.cs" Link="Sources\UpdateInfoParser.cs" />
   </ItemGroup>
 
 </Project>

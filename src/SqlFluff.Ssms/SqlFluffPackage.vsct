@@ -120,6 +120,16 @@
           <ToolTipText>Configure the SQLFluff extension</ToolTipText>
         </Strings>
       </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidCheckForUpdates" priority="0x0101" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" />
+        <Icon guid="ImageCatalogGuid" id="Refresh" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>Chec&amp;k for Updates...</ButtonText>
+          <ToolTipText>Check GitHub for a newer version of the SQLFluff for SSMS extension, and install it</ToolTipText>
+        </Strings>
+      </Button>
     </Buttons>
 
   </Commands>
@@ -164,6 +174,7 @@
       <IDSymbol name="cmdidLintFolder" value="0x0105" />
       <IDSymbol name="cmdidFixFolder" value="0x0106" />
       <IDSymbol name="cmdidFormatFolder" value="0x0107" />
+      <IDSymbol name="cmdidCheckForUpdates" value="0x0108" />
     </GuidSymbol>
   </Symbols>
 

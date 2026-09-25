@@ -21,6 +21,7 @@ namespace SqlFluff.Ssms.Core
         public DiagnosticSeverity Severity { get; set; }
         public bool AutoSaveAfterFix { get; set; }
         public bool FormatOnSave { get; set; }
+        public bool CheckForUpdatesOnStartup { get; set; }
 
         public SqlFluffSettings Clone()
         {
@@ -38,6 +39,7 @@ namespace SqlFluff.Ssms.Core
                 Severity = Severity,
                 AutoSaveAfterFix = AutoSaveAfterFix,
                 FormatOnSave = FormatOnSave,
+                CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
             };
         }
     }

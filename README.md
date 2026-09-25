@@ -18,6 +18,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect
+- **Update checks from within SSMS**: SQLFluff > Check for Updates... checks GitHub for a newer release and offers to download and install it — no separate manual download needed (see [Updating](#updating))
 
 ## Installation
 
@@ -38,6 +39,10 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
    ```
 3. Restart SSMS
 
+### Updating
+
+Once installed, new versions no longer require a manual download: **SQLFluff > Check for Updates...** checks GitHub for the latest release and, if it's newer than what's installed, offers to download and launch the installer for you (the same installer that runs when you double-click a `.vsix` — SSMS may need to close for it to finish). The extension also checks silently on startup and notes an available update in the SQLFluff output pane and status bar without downloading anything on its own; disable that with **Check for updates on startup** in Options (see [Configuration](#configuration)).
+
 ## Usage
 
 **Tools > SQLFluff**:
@@ -47,6 +52,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Clear Diagnostics** — Remove diagnostics
 - **Lint/Fix/Format All Files in Folder** — run against every `.sql` file under the open folder instead of just the active document. Fix/Format confirm before rewriting files on disk and skip any file with unsaved editor changes. Progress is reported in the status bar as each file is processed (`fixing 12/80 — path\to\file.sql`); running the same command again while it's in progress cancels it.
 - **Options** — Configure the extension
+- **Check for Updates...** — Check GitHub for a newer version of the extension and, if found, offer to download and install it (see [Updating](#updating))
 
 **Keyboard**:
 - `Ctrl+K, Ctrl+Shift+L` — Lint
@@ -77,6 +83,7 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Lint on save | ✓ |
 | Lint while typing | ✗ |
 | Report violations as | Warning |
+| Check for updates on startup | ✓ — silent unless a newer release is found (see [Updating](#updating)); never downloads or installs anything on its own |
 
 **Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
 

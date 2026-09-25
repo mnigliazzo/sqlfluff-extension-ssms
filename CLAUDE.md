@@ -101,6 +101,10 @@ Fix/Format apply changes to the in-memory buffer only — they do **not** save t
 
 Because `Editor/SqlFluffSuggestedActionsSource.cs` is composed by MEF (no constructor injection available), it reaches the package's services through `SqlFluffPackage.Instance`, a static singleton set in `InitializeAsync` / cleared in `Dispose`. This is the one deliberate exception to normal DI in this codebase — needed because MEF components and `AsyncPackage` are wired up through entirely separate mechanisms in the VS extensibility model.
 
+### Extension self-update
+
+The extension itself (not SQLFluff) can update in-place from SSMS, since it has no VS Marketplace listing to drive auto-update the normal way — it's only ever distributed as a `.vsix` attached to a GitHub Release (see [Release process](#release-process)). `Core/UpdateInfoParser.cs` is pure logic (parses the JSON from GitHub's `GET /repos/.../releases/latest`, compares versions) and is unit tested; `Core/ExtensionUpdater.cs` does the actual `HttpClient` fetch/download and launches the downloaded `.vsix` via `Process.Start(UseShellExecute: true)` — i.e. whatever's registered to open a `.vsix` (VSIXInstaller, normally), identical to a user double-clicking a manually downloaded one. `SqlFluffPackage.CheckForUpdatesAsync` is the only caller and has two modes: a silent startup check (gated by the "Check for updates on startup" option, default on) that just logs/sets status if a newer release exists, and the explicit **SQLFluff > Check for Updates...** command, which additionally prompts and, on confirmation, downloads and launches the installer. Neither path ever downloads or installs without an explicit user "yes" to that prompt.
+
 ### Settings
 
 `Core/SqlFluffSettings.cs` is a plain POCO snapshot of user options, produced by `Options/SqlFluffOptionsPage.cs` (`DialogPage.ToSettings()`) — a fresh instance is read at the start of each lint/fix/format operation rather than passed around as mutable global state. `SqlFluffOptionsPage` shows up in SSMS under Tools > Options > SQLFluff > General.

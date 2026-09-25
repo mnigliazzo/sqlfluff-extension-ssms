@@ -23,5 +23,6 @@ namespace SqlFluff.Ssms
         public const int CmdLintFolder = 0x0105;
         public const int CmdFixFolder = 0x0106;
         public const int CmdFormatFolder = 0x0107;
+        public const int CmdCheckForUpdates = 0x0108;
     }
 }

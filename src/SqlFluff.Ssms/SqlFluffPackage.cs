@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Design;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -75,6 +77,7 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdFormat, (s, e) => RunOnActiveDocument(EditorAction.Format), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdClear, (s, e) => ClearActiveDocument(), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdCheckForUpdates, (s, e) => CheckForUpdates(userInitiated: true), requiresSql: false);
                 AddFolderCommand(commands, PackageIds.CmdLintFolder, FolderBatchAction.Lint);
                 AddFolderCommand(commands, PackageIds.CmdFixFolder, FolderBatchAction.Fix);
                 AddFolderCommand(commands, PackageIds.CmdFormatFolder, FolderBatchAction.Format);
@@ -89,6 +92,12 @@ namespace SqlFluff.Ssms
 
             // Non-blocking: warn once if sqlfluff isn't reachable, instead of waiting for the first Lint/Fix to fail.
             JoinableTaskFactory.RunAsync(CheckSqlFluffAvailabilityAsync).Task.FileAndForget("sqlfluff/availability-check");
+
+            // Non-blocking, and silent unless a newer release is actually found (Tools > Options > SQLFluff > Updates).
+            if (GetSettings().CheckForUpdatesOnStartup)
+            {
+                JoinableTaskFactory.RunAsync(() => CheckForUpdatesAsync(userInitiated: false)).Task.FileAndForget("sqlfluff/update-check");
+            }
         }
 
         private async Task CheckSqlFluffAvailabilityAsync()
@@ -105,6 +114,88 @@ namespace SqlFluff.Ssms
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             OutputLog.Write(error);
             OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
+        }
+
+        private void CheckForUpdates(bool userInitiated)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            JoinableTaskFactory.RunAsync(() => CheckForUpdatesAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-for-updates");
+        }
+
+        // Checks GitHub for a newer release of the extension itself (not sqlfluff). The silent
+        // startup check (userInitiated: false) only ever logs/sets status - it never prompts or
+        // downloads anything on its own. The explicit "Check for Updates..." command additionally
+        // offers to download and launch the installer.
+        private async Task CheckForUpdatesAsync(bool userInitiated)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (userInitiated)
+            {
+                OutputLog.SetStatus("SQLFluff: checking for updates...");
+            }
+
+            string installedVersion = GetType().Assembly.GetName().Version.ToString(3);
+            UpdateInfo latest = await Task.Run(() => ExtensionUpdater.CheckForNewerReleaseAsync(installedVersion, CancellationToken.None));
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (latest == null)
+            {
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: you're already up to date (v" + installedVersion + "), or the update check failed - see the SQLFluff output pane.");
+                }
+
+                return;
+            }
+
+            OutputLog.Write("Update available: v" + latest.Version + " (installed: v" + installedVersion + "). " + latest.ReleaseUrl);
+
+            if (!userInitiated)
+            {
+                OutputLog.SetStatus("SQLFluff: update v" + latest.Version + " available. Run SQLFluff > Check for Updates... to install it.");
+                return;
+            }
+
+            int result = VsShellUtilities.ShowMessageBox(
+                this,
+                "Version " + latest.Version + " is available (you have v" + installedVersion + ").\n\n" +
+                "Download and install it now? SSMS may need to close before the installer can proceed.",
+                "SQLFluff for SSMS: Update Available",
+                OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+
+            if (result != (int)VSConstants.MessageBoxResult.IDYES)
+            {
+                OutputLog.SetStatus("SQLFluff: update v" + latest.Version + " available. See the SQLFluff output pane.");
+                return;
+            }
+
+            OutputLog.SetStatus("SQLFluff: downloading v" + latest.Version + "...");
+            string vsixPath;
+            try
+            {
+                vsixPath = await Task.Run(() => ExtensionUpdater.DownloadVsixAsync(latest.VsixDownloadUrl, CancellationToken.None));
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is IOException)
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                OutputLog.Write("Update download failed: " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: update download failed - see the SQLFluff output pane, or download it manually from " + latest.ReleaseUrl);
+                return;
+            }
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            OutputLog.Write("Downloaded update to " + vsixPath + "; launching the installer.");
+            OutputLog.SetStatus("SQLFluff: launching the installer for v" + latest.Version + "...");
+
+            try
+            {
+                ExtensionUpdater.LaunchInstaller(vsixPath);
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                OutputLog.Write("Could not launch the installer: " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: could not launch the installer - open " + vsixPath + " manually.");
+            }
         }
 
         private void AddCommand(OleMenuCommandService service, int id, EventHandler handler, bool requiresSql)
