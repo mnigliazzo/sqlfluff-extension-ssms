@@ -79,6 +79,7 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdClear, (s, e) => ClearActiveDocument(), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdCheckForUpdates, (s, e) => CheckForUpdates(userInitiated: true), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdInstallSqlFluffTool, (s, e) => CheckSqlFluffTool(userInitiated: true), requiresSql: false);
                 AddFolderCommand(commands, PackageIds.CmdLintFolder, FolderBatchAction.Lint);
                 AddFolderCommand(commands, PackageIds.CmdFixFolder, FolderBatchAction.Fix);
                 AddFolderCommand(commands, PackageIds.CmdFormatFolder, FolderBatchAction.Format);
@@ -95,10 +96,11 @@ namespace SqlFluff.Ssms
 
             // Non-blocking. Sequenced rather than two independent fire-and-forget tasks: both may
             // call OutputLog.SetStatus, and running them concurrently would let whichever finishes
-            // last silently clobber the other's status bar text. The update notice (silent unless
-            // CheckForUpdatesOnStartup finds something, and never prompts on its own) goes first so
-            // that sqlfluff-not-found — the more actionable warning, since nothing lints until it's
-            // fixed — is always the one left showing if both have something to say.
+            // last silently clobber the other's status bar text. The extension's own update notice
+            // (silent unless CheckForUpdatesOnStartup finds something, and never prompts on its
+            // own) goes first, since the sqlfluff tool check that follows may pop a blocking
+            // install/upgrade prompt - the more actionable of the two, since nothing lints at all
+            // until sqlfluff itself is reachable.
             JoinableTaskFactory.RunAsync(async () =>
             {
                 if (GetSettings().CheckForUpdatesOnStartup)
@@ -106,7 +108,7 @@ namespace SqlFluff.Ssms
                     await CheckForUpdatesAsync(userInitiated: false);
                 }
 
-                await CheckSqlFluffAvailabilityAsync();
+                await CheckSqlFluffAvailabilityAsync(userInitiated: false);
             }).Task.FileAndForget("sqlfluff/startup-checks");
         }
 
@@ -149,20 +151,168 @@ namespace SqlFluff.Ssms
             page.SaveSettingsToStorage();
         }
 
-        private async Task CheckSqlFluffAvailabilityAsync()
+        private void CheckSqlFluffTool(bool userInitiated)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            JoinableTaskFactory.RunAsync(() => CheckSqlFluffAvailabilityAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-sqlfluff-tool");
+        }
+
+        // Checks that the sqlfluff *tool* (not the extension) is installed and reachable, and, if
+        // it is, that it's not outdated per PyPI. The silent startup check (userInitiated: false)
+        // still prompts to install/upgrade when something's actually missing or outdated - unlike
+        // the extension's own update check, there's no useful "just note it and move on" for a
+        // tool the extension can't function without at all. The explicit "Install/Update SQLFluff
+        // Tool..." command (userInitiated: true) additionally reports back when everything's
+        // already fine, so the command doesn't look like it did nothing.
+        private async Task CheckSqlFluffAvailabilityAsync(bool userInitiated)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             SqlFluffSettings settings = GetSettings();
-
-            string error = await Task.Run(() => SqlFluffRunner.CheckAvailabilityAsync(settings, CancellationToken.None));
-            if (error == null)
+            if (userInitiated)
             {
+                OutputLog.SetStatus("SQLFluff: checking the sqlfluff tool...");
+            }
+
+            SqlFluffAvailability availability = await Task.Run(() => SqlFluffRunner.CheckAvailabilityAsync(settings, CancellationToken.None));
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (!availability.IsAvailable)
+            {
+                OutputLog.Write(availability.Error);
+                OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
+                await OfferInstallSqlFluffToolAsync();
+                return;
+            }
+
+            await CheckSqlFluffToolUpdateAsync(availability.Version, userInitiated);
+        }
+
+        private async Task OfferInstallSqlFluffToolAsync()
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            int result = VsShellUtilities.ShowMessageBox(
+                this,
+                "SQLFluff (the Python linter/formatter this extension relies on) was not found.\n\n" +
+                "Install it now via 'pip install sqlfluff'? This requires Python and pip to already be installed.",
+                "SQLFluff for SSMS: SQLFluff Tool Not Found",
+                OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+
+            if (result != (int)VSConstants.MessageBoxResult.IDYES)
+            {
+                OutputLog.SetStatus("SQLFluff: not installed. Run SQLFluff > Install/Update SQLFluff Tool... any time, or install manually with 'pip install sqlfluff'.");
+                return;
+            }
+
+            await RunPipInstallAsync(upgrade: false);
+        }
+
+        private async Task CheckSqlFluffToolUpdateAsync(string installedVersion, bool userInitiated)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (string.IsNullOrEmpty(installedVersion))
+            {
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: tool found, but its version couldn't be determined to check for an update.");
+                }
+
+                return;
+            }
+
+            string latest;
+            try
+            {
+                latest = await Task.Run(() => SqlFluffInstaller.GetLatestVersionAsync(CancellationToken.None));
+            }
+            catch (SqlFluffUpdateCheckException ex)
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                OutputLog.Write("SQLFluff tool version check failed: " + ex.Message);
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: tool version check failed - see the SQLFluff output pane.");
+                }
+
                 return;
             }
 
             await JoinableTaskFactory.SwitchToMainThreadAsync();
-            OutputLog.Write(error);
-            OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
+            if (latest == null || !PyPiPackageInfoParser.IsNewer(installedVersion, latest))
+            {
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: tool is up to date (v" + installedVersion + ").");
+                }
+
+                return;
+            }
+
+            OutputLog.Write("A newer SQLFluff tool release is available on PyPI: v" + latest + " (installed: v" + installedVersion + ").");
+
+            int result = VsShellUtilities.ShowMessageBox(
+                this,
+                "A newer version of the SQLFluff tool is available: v" + latest + " (you have v" + installedVersion + ").\n\n" +
+                "Upgrade now via 'pip install --upgrade sqlfluff'?",
+                "SQLFluff for SSMS: SQLFluff Tool Update Available",
+                OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
+
+            if (result != (int)VSConstants.MessageBoxResult.IDYES)
+            {
+                OutputLog.SetStatus("SQLFluff: tool v" + latest + " available. Run SQLFluff > Install/Update SQLFluff Tool... any time, or 'pip install --upgrade sqlfluff'.");
+                return;
+            }
+
+            await RunPipInstallAsync(upgrade: true);
+        }
+
+        // Shared by both the "not found" and "outdated" prompts above - the only difference
+        // between installing and upgrading sqlfluff via pip is the --upgrade flag.
+        private async Task RunPipInstallAsync(bool upgrade)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            string verb = upgrade ? "Upgrading" : "Installing";
+            OutputLog.Write(verb + " SQLFluff via pip...");
+            OutputLog.SetStatus("SQLFluff: " + verb.ToLowerInvariant() + " via pip... (see the SQLFluff output pane)");
+
+            PipInstallResult installResult;
+            try
+            {
+                installResult = await Task.Run(() => SqlFluffInstaller.InstallAsync(
+                    upgrade, line => OutputLog.Write("pip: " + line), CancellationToken.None));
+            }
+            catch (SqlFluffInstallException ex)
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                OutputLog.Write("SQLFluff install failed: " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: install failed - see the SQLFluff output pane.");
+                return;
+            }
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (!installResult.Success)
+            {
+                OutputLog.Write("pip exited with code " + installResult.ExitCode + ".");
+                OutputLog.SetStatus("SQLFluff: install failed (pip exited with code " + installResult.ExitCode + ") - see the SQLFluff output pane.");
+                return;
+            }
+
+            SqlFluffRunner.ResetCache();
+            OutputLog.Write("SQLFluff " + (upgrade ? "updated" : "installed") + " successfully via pip.");
+
+            // Confirm it's actually reachable now rather than trusting pip's exit code alone -
+            // e.g. a freshly installed sqlfluff.exe landing in a Scripts folder that isn't on PATH.
+            SqlFluffSettings verifySettings = GetSettings();
+            SqlFluffAvailability verify = await Task.Run(() => SqlFluffRunner.CheckAvailabilityAsync(verifySettings, CancellationToken.None));
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (verify.IsAvailable)
+            {
+                OutputLog.SetStatus("SQLFluff: " + (upgrade ? "updated" : "installed") + " successfully (v" + (verify.Version ?? "unknown") + ").");
+            }
+            else
+            {
+                OutputLog.Write(verify.Error);
+                OutputLog.SetStatus("SQLFluff: pip reported success, but SQLFluff still isn't reachable - see the SQLFluff output pane, or set its path in Tools > Options > SQLFluff.");
+            }
         }
 
         private void CheckForUpdates(bool userInitiated)
