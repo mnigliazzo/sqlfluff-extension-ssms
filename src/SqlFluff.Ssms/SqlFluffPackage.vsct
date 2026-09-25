@@ -38,6 +38,9 @@
       <Group guid="guidSqlFluffCmdSet" id="ToolbarGroup" priority="0x0000">
         <Parent guid="guidSqlFluffCmdSet" id="SqlFluffToolbar" />
       </Group>
+      <Group guid="guidSqlFluffCmdSet" id="ToolbarFolderGroup" priority="0x0001">
+        <Parent guid="guidSqlFluffCmdSet" id="SqlFluffToolbar" />
+      </Group>
     </Groups>
 
     <Buttons>
@@ -147,6 +150,15 @@
     <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidClear" priority="0x0103">
       <Parent guid="guidSqlFluffCmdSet" id="ToolbarGroup" />
     </CommandPlacement>
+    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidLintFolder" priority="0x0100">
+      <Parent guid="guidSqlFluffCmdSet" id="ToolbarFolderGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidFixFolder" priority="0x0101">
+      <Parent guid="guidSqlFluffCmdSet" id="ToolbarFolderGroup" />
+    </CommandPlacement>
+    <CommandPlacement guid="guidSqlFluffCmdSet" id="cmdidFormatFolder" priority="0x0102">
+      <Parent guid="guidSqlFluffCmdSet" id="ToolbarFolderGroup" />
+    </CommandPlacement>
   </CommandPlacements>
 
   <KeyBindings>
@@ -164,6 +176,7 @@
       <IDSymbol name="SubMenuOptionsGroup" value="0x1002" />
       <IDSymbol name="ToolbarGroup" value="0x1004" />
       <IDSymbol name="SubMenuFolderGroup" value="0x1005" />
+      <IDSymbol name="ToolbarFolderGroup" value="0x1006" />
       <IDSymbol name="SqlFluffSubMenu" value="0x2000" />
       <IDSymbol name="SqlFluffToolbar" value="0x2001" />
       <IDSymbol name="cmdidLint" value="0x0100" />
