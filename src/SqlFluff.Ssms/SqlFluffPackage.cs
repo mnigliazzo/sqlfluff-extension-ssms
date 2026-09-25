@@ -135,14 +135,29 @@ namespace SqlFluff.Ssms
             }
 
             string installedVersion = GetType().Assembly.GetName().Version.ToString(3);
-            UpdateInfo latest = await Task.Run(() => ExtensionUpdater.CheckForNewerReleaseAsync(installedVersion, CancellationToken.None));
+            UpdateInfo latest;
+            try
+            {
+                latest = await Task.Run(() => ExtensionUpdater.CheckForNewerReleaseAsync(installedVersion, CancellationToken.None));
+            }
+            catch (UpdateCheckException ex)
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                OutputLog.Write("Update check failed: " + ex.Message);
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: update check failed - see the SQLFluff output pane.");
+                }
+
+                return;
+            }
 
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             if (latest == null)
             {
                 if (userInitiated)
                 {
-                    OutputLog.SetStatus("SQLFluff: you're already up to date (v" + installedVersion + "), or the update check failed - see the SQLFluff output pane.");
+                    OutputLog.SetStatus("SQLFluff: you're already up to date (v" + installedVersion + ").");
                 }
 
                 return;
@@ -175,7 +190,7 @@ namespace SqlFluff.Ssms
             {
                 vsixPath = await Task.Run(() => ExtensionUpdater.DownloadVsixAsync(latest.VsixDownloadUrl, CancellationToken.None));
             }
-            catch (Exception ex) when (ex is HttpRequestException || ex is IOException)
+            catch (Exception ex) when (ex is HttpRequestException || ex is IOException || ex is TaskCanceledException)
             {
                 await JoinableTaskFactory.SwitchToMainThreadAsync();
                 OutputLog.Write("Update download failed: " + ex.Message);

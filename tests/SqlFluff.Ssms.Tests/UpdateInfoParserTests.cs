@@ -47,6 +47,16 @@ namespace SqlFluff.Ssms.Tests
         }
 
         [Fact]
+        public void Parse_FallsBackReleaseUrlToVsixUrl_WhenHtmlUrlIsMissing()
+        {
+            const string json = @"{""tag_name"": ""v1.0.0"", ""assets"": [{""name"": ""x.vsix"", ""browser_download_url"": ""https://example.com/x.vsix""}]}";
+
+            UpdateInfo result = UpdateInfoParser.Parse(json);
+
+            Assert.Equal("https://example.com/x.vsix", result.ReleaseUrl);
+        }
+
+        [Fact]
         public void Parse_ReturnsNull_WhenNoVsixAssetPresent()
         {
             const string json = @"{""tag_name"": ""v1.0.0"", ""assets"": [{""name"": ""readme.txt"", ""browser_download_url"": ""u""}]}";

@@ -45,7 +45,11 @@ namespace SqlFluff.Ssms.Core
                 return null;
             }
 
-            return new UpdateInfo(version, release.HtmlUrl, vsixUrl);
+            // html_url should always be present on a real GitHub release; fall back to the .vsix
+            // link itself so a message built from ReleaseUrl never silently drops the URL.
+            string releaseUrl = string.IsNullOrEmpty(release.HtmlUrl) ? vsixUrl : release.HtmlUrl;
+
+            return new UpdateInfo(version, releaseUrl, vsixUrl);
         }
 
         // True when `latest` is a parseable version strictly newer than `installed`. Either side
