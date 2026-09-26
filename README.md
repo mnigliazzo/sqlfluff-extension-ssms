@@ -51,7 +51,7 @@ This is about the `sqlfluff` *tool* itself (the Python linter this extension she
 1. Checks whether `sqlfluff` is reachable at all. If not, it prompts to install it now via `pip install sqlfluff` (this needs Python and pip already on `PATH` — installing Python itself is out of scope).
 2. If it is reachable, checks its version against the latest release on PyPI and, if outdated, prompts to upgrade via `pip install --upgrade sqlfluff`.
 
-Either prompt, if accepted, runs pip in the background and streams its output to the SQLFluff output pane; declining either one just leaves a note in the status bar and output pane instead of pip installing/upgrading anything.
+Either prompt, if accepted, runs pip in the background and streams its output to the SQLFluff output pane; declining either one just leaves a note in the status bar and output pane instead of pip installing/upgrading anything. Disable the startup check entirely with **Check SQLFluff tool on startup** in Options (see [Configuration](#configuration)) — the manual command still runs it on demand either way.
 
 ## Usage
 
@@ -95,6 +95,7 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Lint while typing | ✗ |
 | Report violations as | Warning |
 | Check for updates on startup | ✓ — silent unless a newer release is found (see [Updating](#updating)); never downloads or installs anything on its own |
+| Check SQLFluff tool on startup | ✓ — checks whether the `sqlfluff` tool is installed and up to date, prompting to install/upgrade via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup)); turn off on a machine without PyPI access, or to manage sqlfluff yourself |
 
 **Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
 

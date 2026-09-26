@@ -32,6 +32,7 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\UpdateInfoParser.cs" Link="Sources\UpdateInfoParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffVersionParser.cs" Link="Sources\SqlFluffVersionParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\PyPiPackageInfoParser.cs" Link="Sources\PyPiPackageInfoParser.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\VersionComparer.cs" Link="Sources\VersionComparer.cs" />
   </ItemGroup>
 
 </Project>

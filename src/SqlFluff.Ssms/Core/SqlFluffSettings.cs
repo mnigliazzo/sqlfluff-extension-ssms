@@ -22,6 +22,7 @@ namespace SqlFluff.Ssms.Core
         public bool AutoSaveAfterFix { get; set; }
         public bool FormatOnSave { get; set; }
         public bool CheckForUpdatesOnStartup { get; set; }
+        public bool CheckSqlFluffToolOnStartup { get; set; }
 
         public SqlFluffSettings Clone()
         {
@@ -40,6 +41,7 @@ namespace SqlFluff.Ssms.Core
                 AutoSaveAfterFix = AutoSaveAfterFix,
                 FormatOnSave = FormatOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
+                CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
             };
         }
     }

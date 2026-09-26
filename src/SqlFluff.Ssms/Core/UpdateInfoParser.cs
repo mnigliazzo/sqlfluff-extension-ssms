@@ -52,14 +52,13 @@ namespace SqlFluff.Ssms.Core
             return new UpdateInfo(version, releaseUrl, vsixUrl);
         }
 
-        // True when `latest` is a parseable version strictly newer than `installed`. Either side
-        // failing to parse means "can't tell" rather than "update available", so a malformed tag
-        // or an unexpected assembly version never falsely nags the user.
+        // True when `latest` is a parseable version strictly newer than `installed`. Delegates to
+        // VersionComparer (shared with PyPiPackageInfoParser) rather than System.Version directly,
+        // since System.Version treats a missing trailing component as -1 instead of 0 and would
+        // misread e.g. "1.6" as older than an equivalent "1.6.0".
         public static bool IsNewer(string installed, string latest)
         {
-            return Version.TryParse(installed, out Version installedVersion) &&
-                   Version.TryParse(latest, out Version latestVersion) &&
-                   latestVersion > installedVersion;
+            return VersionComparer.IsNewer(installed, latest);
         }
 
         // Release tags in this repo are always "vX.Y.Z" (see CLAUDE.md's Release process). Strips

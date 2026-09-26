@@ -90,6 +90,11 @@ namespace SqlFluff.Ssms.Options
         [Description("Check GitHub for a newer version of the SQLFluff for SSMS extension itself when SSMS starts, and note it in the SQLFluff output pane and status bar if one is found. Never downloads or installs anything on its own — use SQLFluff > Check for Updates... to do that.")]
         public bool CheckForUpdatesOnStartup { get; set; } = true;
 
+        [Category(UpdatesCategory)]
+        [DisplayName("Check SQLFluff tool on startup")]
+        [Description("Check when SSMS starts whether the sqlfluff Python tool (not the extension) is installed and up to date, and, if not, prompt to install/upgrade it via pip. Turn this off on a machine without internet/PyPI access, or to manage sqlfluff yourself — use SQLFluff > Install/Update SQLFluff Tool... to run the same check on demand regardless of this setting.")]
+        public bool CheckSqlFluffToolOnStartup { get; set; } = true;
+
         // Not user-facing. The SQLFluff toolbar's `DefaultDocked` CommandFlag (SqlFluffPackage.vsct)
         // doesn't reliably make SSMS 22 show it on its own — see SqlFluffPackage.EnsureToolbarVisibleOnce,
         // which forces it visible via DTE.CommandBars exactly once and flips this so a user who later
@@ -120,6 +125,7 @@ namespace SqlFluff.Ssms.Options
                 AutoSaveAfterFix = AutoSaveAfterFix,
                 FormatOnSave = FormatOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
+                CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
             };
         }
     }

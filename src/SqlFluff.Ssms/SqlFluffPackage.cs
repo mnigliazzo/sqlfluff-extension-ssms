@@ -103,12 +103,16 @@ namespace SqlFluff.Ssms
             // until sqlfluff itself is reachable.
             JoinableTaskFactory.RunAsync(async () =>
             {
-                if (GetSettings().CheckForUpdatesOnStartup)
+                SqlFluffSettings startupSettings = GetSettings();
+                if (startupSettings.CheckForUpdatesOnStartup)
                 {
                     await CheckForUpdatesAsync(userInitiated: false);
                 }
 
-                await CheckSqlFluffAvailabilityAsync(userInitiated: false);
+                if (startupSettings.CheckSqlFluffToolOnStartup)
+                {
+                    await CheckSqlFluffAvailabilityAsync(userInitiated: false);
+                }
             }).Task.FileAndForget("sqlfluff/startup-checks");
         }
 
@@ -157,34 +161,72 @@ namespace SqlFluff.Ssms
             JoinableTaskFactory.RunAsync(() => CheckSqlFluffAvailabilityAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-sqlfluff-tool");
         }
 
+        // Guards the whole check-then-install/upgrade flow below against running twice at once -
+        // e.g. the silent startup check still waiting on a slow PyPI round trip (or on the user
+        // sitting on the install-prompt dialog) when the user separately invokes "Install/Update
+        // SQLFluff Tool..." manually. Without this, both could reach RunPipInstallAsync and launch
+        // pip concurrently against the same environment (see RunFolderAction's _folderBatchCts for
+        // the same kind of guard around another external, mutating operation).
+        private bool _sqlFluffToolCheckInFlight;
+
         // Checks that the sqlfluff *tool* (not the extension) is installed and reachable, and, if
         // it is, that it's not outdated per PyPI. The silent startup check (userInitiated: false)
         // still prompts to install/upgrade when something's actually missing or outdated - unlike
         // the extension's own update check, there's no useful "just note it and move on" for a
-        // tool the extension can't function without at all. The explicit "Install/Update SQLFluff
+        // tool the extension can't function without at all (though it can be turned off entirely
+        // via "Check SQLFluff tool on startup" in Options). The explicit "Install/Update SQLFluff
         // Tool..." command (userInitiated: true) additionally reports back when everything's
         // already fine, so the command doesn't look like it did nothing.
         private async Task CheckSqlFluffAvailabilityAsync(bool userInitiated)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
-            SqlFluffSettings settings = GetSettings();
-            if (userInitiated)
+            if (_sqlFluffToolCheckInFlight)
             {
-                OutputLog.SetStatus("SQLFluff: checking the sqlfluff tool...");
-            }
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: already checking/installing the sqlfluff tool - please wait for it to finish.");
+                }
 
-            SqlFluffAvailability availability = await Task.Run(() => SqlFluffRunner.CheckAvailabilityAsync(settings, CancellationToken.None));
-
-            await JoinableTaskFactory.SwitchToMainThreadAsync();
-            if (!availability.IsAvailable)
-            {
-                OutputLog.Write(availability.Error);
-                OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
-                await OfferInstallSqlFluffToolAsync();
                 return;
             }
 
-            await CheckSqlFluffToolUpdateAsync(availability.Version, userInitiated);
+            _sqlFluffToolCheckInFlight = true;
+            try
+            {
+                SqlFluffSettings settings = GetSettings();
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: checking the sqlfluff tool...");
+                }
+
+                SqlFluffAvailability availability = await Task.Run(() => SqlFluffRunner.CheckAvailabilityAsync(settings, CancellationToken.None));
+
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (!availability.IsAvailable)
+                {
+                    OutputLog.Write(availability.Error);
+
+                    if (availability.IsConfiguredPathInvalid)
+                    {
+                        // Installing/upgrading via pip elsewhere can't fix this - Options'
+                        // Executable path always wins once it's set to something non-default (see
+                        // SqlFluffRunner.Resolve), so offering to run pip here would just leave the
+                        // user stuck in a loop where it "succeeds" but SQLFluff still isn't reachable.
+                        OutputLog.SetStatus("SQLFluff: the configured executable path in Tools > Options > SQLFluff is invalid - fix or clear it there.");
+                        return;
+                    }
+
+                    OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
+                    await OfferInstallSqlFluffToolAsync();
+                    return;
+                }
+
+                await CheckSqlFluffToolUpdateAsync(availability.Version, userInitiated);
+            }
+            finally
+            {
+                _sqlFluffToolCheckInFlight = false;
+            }
         }
 
         private async Task OfferInstallSqlFluffToolAsync()

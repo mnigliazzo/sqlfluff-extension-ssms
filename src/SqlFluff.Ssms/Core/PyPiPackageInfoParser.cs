@@ -39,15 +39,13 @@ namespace SqlFluff.Ssms.Core
             return string.IsNullOrEmpty(version) ? null : version;
         }
 
-        // True when `latest` is a parseable version strictly newer than `installed`. Either side
-        // failing to parse (e.g. a pre-release like "3.2.0a1", which System.Version can't handle)
-        // means "can't tell" rather than "update available", so an unusual version string never
-        // falsely nags the user.
+        // True when `latest` is a parseable version strictly newer than `installed`. Delegates to
+        // VersionComparer (shared with UpdateInfoParser) rather than System.Version directly, since
+        // sqlfluff's own CLI can report a shorter version string (e.g. "3.1") than PyPI's full
+        // "3.1.0", and System.Version would misread the former as older than the latter.
         public static bool IsNewer(string installed, string latest)
         {
-            return Version.TryParse(installed, out Version installedVersion) &&
-                   Version.TryParse(latest, out Version latestVersion) &&
-                   latestVersion > installedVersion;
+            return VersionComparer.IsNewer(installed, latest);
         }
 
         [DataContract]

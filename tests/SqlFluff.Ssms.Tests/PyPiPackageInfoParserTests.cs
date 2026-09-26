@@ -52,6 +52,7 @@ namespace SqlFluff.Ssms.Tests
         [InlineData("3.1.2", "3.1.0", false)]
         [InlineData("3.1.0", "3.2.0", true)]
         [InlineData("2.3.5", "3.0.0", true)]
+        [InlineData("3.1", "3.1.0", false)] // sqlfluff's CLI can report a shorter version than PyPI's full one
         public void IsNewer_ComparesVersions(string installed, string latest, bool expected)
         {
             Assert.Equal(expected, PyPiPackageInfoParser.IsNewer(installed, latest));
