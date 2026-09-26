@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SqlFluff.Mcp.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!--
+    A ProjectReference is fine here (unlike tests/SqlFluff.Ssms.Tests, which links Core/ files
+    directly to avoid dragging in the main VSIX project's VSSDK.BuildTools targets) - SqlFluff.Mcp
+    is already a plain net8.0 console app with no VSSDK/SSMS-MSBuild dependency of its own.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SqlFluff.Mcp\SqlFluff.Mcp.csproj" />
+  </ItemGroup>
+
+</Project>
