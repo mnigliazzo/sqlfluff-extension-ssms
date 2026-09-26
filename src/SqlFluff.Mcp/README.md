@@ -43,11 +43,20 @@ Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`.
 ## Configuring an MCP client
 
 Point your MCP-capable client at the DLL (from either option above), run with `dotnet`.
-There's no installer for this piece, and nothing registers it with a client for you
-automatically - see the main [README](../../README.md#ai-assistant-integration-mcp) for
-why registration in particular stays manual.
+There's no installer for this piece in general, but if your client is GitHub Copilot in
+SSMS specifically, it can be done for you - see below.
 
-### GitHub Copilot in SSMS / Visual Studio
+### GitHub Copilot in SSMS: do it automatically
+
+The SSMS extension's **SQLFluff > Set Up MCP Server for Copilot...** command downloads
+this project's latest release zip, extracts it to a location it manages itself
+(`%LocalAppData%\SqlFluff.Ssms\Mcp`), and registers it in `%USERPROFILE%\.mcp.json` -
+one confirmation prompt, no manual steps. It's also offered once automatically on SSMS
+startup the first time a new release ships one. See the main
+[README](../../README.md#ai-assistant-integration-mcp) for details and the manual
+alternative (also below), which still applies for any other MCP client.
+
+### GitHub Copilot in SSMS / Visual Studio (manual)
 
 Either add it from Copilot Chat's Tools panel (**+** > **Add custom MCP server**, type
 `stdio`, command `dotnet`, args the full path to `SqlFluff.Mcp.dll`), or edit

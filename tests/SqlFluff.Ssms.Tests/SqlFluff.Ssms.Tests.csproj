@@ -33,6 +33,7 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffVersionParser.cs" Link="Sources\SqlFluffVersionParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\PyPiPackageInfoParser.cs" Link="Sources\PyPiPackageInfoParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\VersionComparer.cs" Link="Sources\VersionComparer.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\McpJsonMerger.cs" Link="Sources\McpJsonMerger.cs" />
   </ItemGroup>
 
 </Project>

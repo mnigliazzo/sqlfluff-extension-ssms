@@ -38,7 +38,7 @@ This extension never ships its own copy of SQLFluff or reimplements its rules �
 - **Update checks from within SSMS**: SQLFluff > Check for Updates... checks GitHub for a newer release and offers to download and install it — no separate manual download needed (see [Updating](#updating))
 - **No manual `pip install` needed**: on startup (and via SQLFluff > Install/Update SQLFluff Tool...), the extension checks whether the `sqlfluff` tool itself is installed and up to date, and offers to install/upgrade it via pip if not — see [SQLFluff tool setup](#sqlfluff-tool-setup)
 - **In-product help**: SQLFluff > Extension Help / Documentation opens this README in your browser; SQLFluff > SQLFluff Documentation prints `sqlfluff --help` to the output pane (works offline) plus a link to the full docs.sqlfluff.com reference for rules/dialects/config
-- **AI assistant integration**: a separate MCP server (`SqlFluff.Mcp`, not installed by this VSIX) exposes the same lint/fix/format pipeline to GitHub Copilot in SSMS — see [AI assistant integration (MCP)](#ai-assistant-integration-mcp)
+- **AI assistant integration**: a separate MCP server (`SqlFluff.Mcp`) exposes the same lint/fix/format pipeline to GitHub Copilot in SSMS — SQLFluff > Set Up MCP Server for Copilot... downloads and registers it for you, with no manual build/config step needed — see [AI assistant integration (MCP)](#ai-assistant-integration-mcp)
 
 ## Installation
 
@@ -83,6 +83,7 @@ Either prompt, if accepted, runs pip in the background and streams its output to
 - **Options** — Configure the extension
 - **Check for Updates...** — Check GitHub for a newer version of the extension and, if found, offer to download and install it (see [Updating](#updating))
 - **Install/Update SQLFluff Tool...** — Check whether the `sqlfluff` tool is installed and up to date, and offer to install/upgrade it via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup))
+- **Set Up MCP Server for Copilot...** — Download the latest `SqlFluff.Mcp` release and register it with GitHub Copilot in SSMS, if not already set up (see [AI assistant integration (MCP)](#ai-assistant-integration-mcp))
 
 **Keyboard**:
 - `Ctrl+K, Ctrl+Shift+L` — Lint
@@ -118,26 +119,31 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Report violations as | Warning |
 | Check for updates on startup | ✓ — silent unless a newer release is found (see [Updating](#updating)); never downloads or installs anything on its own |
 | Check SQLFluff tool on startup | ✓ — checks whether the `sqlfluff` tool is installed and up to date, prompting to install/upgrade via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup)); turn off on a machine without PyPI access, or to manage sqlfluff yourself |
+| Check MCP server on startup | ✓ — checks whether a newer `SqlFluff.Mcp` release is available and, the first time one is, offers to download and register it with GitHub Copilot (see [AI assistant integration (MCP)](#ai-assistant-integration-mcp)); declining once isn't asked again until a newer release ships; turn off to manage it yourself |
 
 **Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
 
 ## AI assistant integration (MCP)
 
-This VSIX doesn't install or configure this on its own — it's a separate, standalone piece you set up once if you want it.
-
 [`src/SqlFluff.Mcp`](src/SqlFluff.Mcp) is a second, independent front-end over the same lint/fix/format pipeline, exposed as an [MCP](https://modelcontextprotocol.io) server over stdio, so GitHub Copilot (or any other MCP-capable AI assistant) in SSMS can run SQL it just wrote through the project's actual `.sqlfluff` config before handing it back to you — instead of guessing at formatting. It has no dependency on this VSIX and isn't installed by it; see its own [README](src/SqlFluff.Mcp/README.md) for the full tool reference.
 
-**Setup:**
+### Automatic setup (recommended)
+
+**Tools > SQLFluff > Set Up MCP Server for Copilot...** downloads the latest `SqlFluff.Mcp.zip` release, extracts it to `%LocalAppData%\SqlFluff.Ssms\Mcp`, and registers it in `%USERPROFILE%\.mcp.json` for you — all behind a single confirmation prompt (needs the [.NET 8 runtime](https://dotnet.microsoft.com/download) installed; it never overwrites an existing `sqlfluff` entry, so a prior manual setup is left untouched). It's also offered once automatically on startup the first time a new release ships one — see **Check MCP server on startup** in [Configuration](#configuration) to turn that off. Either way, you still need to enable its tools in Copilot Chat's Tools panel — new MCP tools are disabled by default.
+
+### Manual setup
+
+Useful on a machine without internet access at setup time, to register it somewhere other than the global `%USERPROFILE%\.mcp.json`, or if you declined the automatic prompt and want to do it by hand instead:
 
 1. Get the DLL — no build required:
-   - Download `SqlFluff.Mcp.zip` from [the latest release](../../releases/latest) and unzip it wherever you want (needs the [.NET 8 runtime](https://dotnet.microsoft.com/download) installed, same as running any other `dotnet`-based tool)
-   - Or build it yourself from source (requires the .NET 8 SDK instead of just the runtime):
+   - Download `SqlFluff.Mcp.zip` from [the latest release](../../releases/latest) and unzip it wherever you want
+   - Or build it yourself from source (requires the .NET 8 SDK):
      ```bash
      dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
      ```
      Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`
 2. Register it with Copilot in SSMS — either:
-   - **From Copilot Chat**: open the **Tools** panel → **+** → **Add custom MCP server** → Server ID `sqlfluff`, Type `stdio`, Command `dotnet`, Args the full path to the DLL from step 1. New tools are added disabled by default — enable them in the same panel.
+   - **From Copilot Chat**: open the **Tools** panel → **+** → **Add custom MCP server** → Server ID `sqlfluff`, Type `stdio`, Command `dotnet`, Args the full path to the DLL from step 1.
    - **By hand**: create/edit `%USERPROFILE%\.mcp.json`:
      ```json
      {
@@ -154,7 +160,7 @@ This VSIX doesn't install or configure this on its own — it's a separate, stan
 
 See Microsoft's [Use MCP servers with GitHub Copilot in SQL Server Management Studio](https://learn.microsoft.com/ssms/github-copilot/mcp-servers) for the host side of this (registry install, per-solution vs. global config, tool approval).
 
-**Why registration (step 2) isn't automatic:** the VSIX installs into a version/instance-specific folder that changes on every update (including this extension's own self-update), so if the installer wrote `.mcp.json` pointing at *that* path, it would go stale the next time the extension updates or is reinstalled. Since you place `SqlFluff.Mcp.zip`'s contents wherever you like, that problem doesn't apply to the DLL itself — only the VSIX's own install location has it — which is why the build/download in step 1 is fully automated (every release) but the `.mcp.json` registration in step 2 is still a manual, one-time step.
+**Why the automatic setup extracts to `%LocalAppData%` instead of the VSIX's own install folder:** the VSIX installs into a version/instance-specific folder that changes on every update (including this extension's own self-update), so an `.mcp.json` entry pointing at *that* path would go stale the next time the extension updates or is reinstalled. `%LocalAppData%\SqlFluff.Ssms\Mcp` is a location this extension manages itself and keeps up to date in place, so the registered path never changes.
 
 ## Building
 

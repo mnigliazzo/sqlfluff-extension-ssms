@@ -38,7 +38,9 @@ namespace SqlFluff.Ssms.Core
             return latest;
         }
 
-        private static async Task<string> FetchLatestReleaseJsonAsync(CancellationToken ct)
+        // Internal rather than private so McpServerInstaller can reuse it to fetch the same
+        // "latest release" JSON for the SqlFluff.Mcp.zip asset it carries.
+        internal static async Task<string> FetchLatestReleaseJsonAsync(CancellationToken ct)
         {
             using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
             {

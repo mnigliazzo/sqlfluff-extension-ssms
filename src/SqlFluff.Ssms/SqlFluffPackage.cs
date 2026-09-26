@@ -81,6 +81,7 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdCheckForUpdates, (s, e) => CheckForUpdates(userInitiated: true), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdInstallSqlFluffTool, (s, e) => CheckSqlFluffTool(userInitiated: true), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdSetupMcpServer, (s, e) => CheckMcpServer(userInitiated: true), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdHelp, (s, e) => OpenHelp(), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdSqlFluffHelp, (s, e) => OpenSqlFluffHelp(), requiresSql: false);
                 AddFolderCommand(commands, PackageIds.CmdLintFolder, FolderBatchAction.Lint);
@@ -115,6 +116,11 @@ namespace SqlFluff.Ssms
                 if (startupSettings.CheckSqlFluffToolOnStartup)
                 {
                     await CheckSqlFluffAvailabilityAsync(userInitiated: false);
+                }
+
+                if (startupSettings.CheckMcpServerOnStartup)
+                {
+                    await CheckMcpServerAsync(userInitiated: false);
                 }
             }).Task.FileAndForget("sqlfluff/startup-checks");
         }
@@ -363,6 +369,199 @@ namespace SqlFluff.Ssms
                 OutputLog.Write(verify.Error);
                 OutputLog.SetStatus("SQLFluff: pip reported success, but SQLFluff still isn't reachable - see the SQLFluff output pane, or set its path in Tools > Options > SQLFluff.");
             }
+        }
+
+        // Guards CheckMcpServerAsync the same way _sqlFluffToolCheckInFlight guards the sqlfluff
+        // tool check - the silent startup check and the manual "Set Up MCP Server..." command
+        // could otherwise both reach InstallAsync concurrently against the same directory.
+        private bool _mcpSetupInFlight;
+
+        private void CheckMcpServer(bool userInitiated)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            JoinableTaskFactory.RunAsync(() => CheckMcpServerAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-mcp-server");
+        }
+
+        // Checks whether a newer SqlFluff.Mcp release is available than what's currently
+        // extracted into McpServerInstaller.ServerDirectory and, if so, offers (single combined
+        // Yes/No prompt) to download it and register it with GitHub Copilot in
+        // %USERPROFILE%\.mcp.json. Mirrors CheckSqlFluffAvailabilityAsync's shape, but unlike
+        // that one, the silent startup path (userInitiated: false) only prompts once per release
+        // version (Options.McpServerOfferedForVersion) rather than every startup - this isn't
+        // something the extension needs to function, unlike the sqlfluff tool itself.
+        private async Task CheckMcpServerAsync(bool userInitiated)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_mcpSetupInFlight)
+            {
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: already checking/setting up the MCP server - please wait for it to finish.");
+                }
+
+                return;
+            }
+
+            _mcpSetupInFlight = true;
+            try
+            {
+                if (userInitiated)
+                {
+                    OutputLog.SetStatus("SQLFluff: checking for the SqlFluff.Mcp server...");
+                }
+
+                UpdateInfo latest;
+                try
+                {
+                    latest = await Task.Run(() => McpServerInstaller.GetLatestReleaseInfoAsync(CancellationToken.None));
+                }
+                catch (UpdateCheckException ex)
+                {
+                    await JoinableTaskFactory.SwitchToMainThreadAsync();
+                    OutputLog.Write("SqlFluff.Mcp release check failed: " + ex.Message);
+                    if (userInitiated)
+                    {
+                        OutputLog.SetStatus("SQLFluff: MCP server check failed - see the SQLFluff output pane.");
+                    }
+
+                    return;
+                }
+
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                if (latest == null || string.IsNullOrEmpty(latest.McpZipDownloadUrl))
+                {
+                    if (userInitiated)
+                    {
+                        OutputLog.SetStatus("SQLFluff: no SqlFluff.Mcp release asset found - see the SQLFluff output pane.");
+                        OutputLog.Write("The latest GitHub release has no SqlFluff.Mcp.zip asset attached.");
+                    }
+
+                    return;
+                }
+
+                string localVersion = await Task.Run(() => McpServerInstaller.ReadLocalVersion());
+                bool alreadyUpToDate = localVersion == latest.Version && File.Exists(McpServerInstaller.DllPath);
+
+                var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
+                if (!userInitiated)
+                {
+                    if (alreadyUpToDate || page.McpServerOfferedForVersion == latest.Version)
+                    {
+                        return;
+                    }
+                }
+                else if (alreadyUpToDate)
+                {
+                    // Already have the right DLL - no need to re-download or re-prompt, but still
+                    // make sure it's registered (e.g. the user removed the .mcp.json entry by hand
+                    // and re-ran this command expecting it back).
+                    OutputLog.Write("SqlFluff.Mcp v" + latest.Version + " is already up to date at " + McpServerInstaller.ServerDirectory + ".");
+                    await RegisterMcpServerAsync(latest, page);
+                    return;
+                }
+
+                int result = VsShellUtilities.ShowMessageBox(
+                    this,
+                    "Set up the SqlFluff MCP server for GitHub Copilot?\n\n" +
+                    "This will download SqlFluff.Mcp.zip (v" + latest.Version + ") from the latest GitHub release, " +
+                    "extract it to " + McpServerInstaller.ServerDirectory + ", and register it in " +
+                    "%USERPROFILE%\\.mcp.json so Copilot can use it (you'll still need to enable its tools " +
+                    "in Copilot Chat's Tools panel - new MCP tools are disabled by default).",
+                    "SQLFluff for SSMS: Set Up MCP Server for Copilot",
+                    OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+
+                if (result != (int)VSConstants.MessageBoxResult.IDYES)
+                {
+                    page.McpServerOfferedForVersion = latest.Version;
+                    page.SaveSettingsToStorage();
+                    OutputLog.SetStatus("SQLFluff: MCP server not set up. Run SQLFluff > Set Up MCP Server for Copilot... any time.");
+                    return;
+                }
+
+                await InstallMcpServerAsync(latest, page);
+            }
+            finally
+            {
+                _mcpSetupInFlight = false;
+            }
+        }
+
+        private async Task InstallMcpServerAsync(UpdateInfo latest, SqlFluffOptionsPage page)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            OutputLog.Write("Downloading SqlFluff.Mcp v" + latest.Version + "...");
+            OutputLog.SetStatus("SQLFluff: setting up the MCP server... (see the SQLFluff output pane)");
+
+            try
+            {
+                await Task.Run(() => McpServerInstaller.InstallAsync(latest.McpZipDownloadUrl, latest.Version, CancellationToken.None));
+            }
+            catch (McpInstallException ex)
+            {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+                OutputLog.Write("SqlFluff.Mcp install failed: " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: MCP server setup failed - see the SQLFluff output pane.");
+                return;
+            }
+
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            OutputLog.Write("SqlFluff.Mcp v" + latest.Version + " extracted to " + McpServerInstaller.ServerDirectory + ".");
+            await RegisterMcpServerAsync(latest, page);
+        }
+
+        // Merges a "sqlfluff" entry into %USERPROFILE%\.mcp.json via McpJsonMerger (which leaves
+        // the file untouched if a "sqlfluff" entry already exists or the file doesn't parse).
+        // Split out from InstallMcpServerAsync so the "already up to date" path in
+        // CheckMcpServerAsync can re-verify/repair the registration without re-downloading.
+        private async Task RegisterMcpServerAsync(UpdateInfo latest, SqlFluffOptionsPage page)
+        {
+            await JoinableTaskFactory.SwitchToMainThreadAsync();
+            page.McpServerOfferedForVersion = latest.Version;
+            page.SaveSettingsToStorage();
+
+            string mcpJsonPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mcp.json");
+            string existingJson = null;
+            try
+            {
+                if (File.Exists(mcpJsonPath))
+                {
+                    existingJson = File.ReadAllText(mcpJsonPath);
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                OutputLog.Write("Could not read " + mcpJsonPath + ": " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: MCP server installed, but couldn't read " + mcpJsonPath + " to register it - see the SQLFluff output pane.");
+                return;
+            }
+
+            string updatedJson = McpJsonMerger.AddSqlFluffServer(existingJson, McpServerInstaller.DllPath);
+            if (updatedJson == null)
+            {
+                if (existingJson != null)
+                {
+                    OutputLog.Write(mcpJsonPath + " already has a 'sqlfluff' server entry (or isn't valid JSON) - left it untouched.");
+                }
+
+                OutputLog.SetStatus("SQLFluff: MCP server ready at " + McpServerInstaller.ServerDirectory + " - " +
+                    (existingJson != null ? "already registered (or " + mcpJsonPath + " couldn't be edited safely)" : "register it manually") +
+                    " and enable it in Copilot's Tools panel.");
+                return;
+            }
+
+            try
+            {
+                File.WriteAllText(mcpJsonPath, updatedJson);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                OutputLog.Write("Could not write " + mcpJsonPath + ": " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: MCP server ready, but couldn't update " + mcpJsonPath + " - see the SQLFluff output pane.");
+                return;
+            }
+
+            OutputLog.Write("Registered the sqlfluff MCP server in " + mcpJsonPath + ".");
+            OutputLog.SetStatus("SQLFluff: MCP server set up. Enable its tools in Copilot Chat's Tools panel to start using it.");
         }
 
         // Same repo as ExtensionUpdater's release-check URL, just the human-facing README instead

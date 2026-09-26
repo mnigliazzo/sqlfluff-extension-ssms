@@ -49,7 +49,12 @@ namespace SqlFluff.Ssms.Core
             // link itself so a message built from ReleaseUrl never silently drops the URL.
             string releaseUrl = string.IsNullOrEmpty(release.HtmlUrl) ? vsixUrl : release.HtmlUrl;
 
-            return new UpdateInfo(version, releaseUrl, vsixUrl);
+            // Absent on releases published before v1.14.0 started attaching it - McpServerInstaller
+            // handles a null McpZipDownloadUrl rather than assuming every release has one.
+            string mcpZipUrl = release?.Assets?.FirstOrDefault(
+                a => string.Equals(a.Name, "SqlFluff.Mcp.zip", StringComparison.OrdinalIgnoreCase))?.BrowserDownloadUrl;
+
+            return new UpdateInfo(version, releaseUrl, vsixUrl, mcpZipUrl);
         }
 
         // True when `latest` is a parseable version strictly newer than `installed`. Delegates to

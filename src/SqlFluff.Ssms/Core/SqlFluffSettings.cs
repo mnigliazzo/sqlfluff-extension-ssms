@@ -26,6 +26,7 @@ namespace SqlFluff.Ssms.Core
         public bool FixOnSave { get; set; }
         public bool CheckForUpdatesOnStartup { get; set; }
         public bool CheckSqlFluffToolOnStartup { get; set; }
+        public bool CheckMcpServerOnStartup { get; set; }
 
         public SqlFluffSettings Clone()
         {
@@ -48,6 +49,7 @@ namespace SqlFluff.Ssms.Core
                 FixOnSave = FixOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
                 CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
+                CheckMcpServerOnStartup = CheckMcpServerOnStartup,
             };
         }
     }

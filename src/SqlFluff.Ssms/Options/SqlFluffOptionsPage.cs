@@ -110,6 +110,11 @@ namespace SqlFluff.Ssms.Options
         [Description("Check when SSMS starts whether the sqlfluff Python tool (not the extension) is installed and up to date, and, if not, prompt to install/upgrade it via pip. Turn this off on a machine without internet/PyPI access, or to manage sqlfluff yourself — use SQLFluff > Install/Update SQLFluff Tool... to run the same check on demand regardless of this setting.")]
         public bool CheckSqlFluffToolOnStartup { get; set; } = true;
 
+        [Category(UpdatesCategory)]
+        [DisplayName("Check MCP server on startup")]
+        [Description("Check when SSMS starts whether a newer SqlFluff.Mcp release is available and, the first time one is, offer to download it and register it with GitHub Copilot (%USERPROFILE%\\.mcp.json) — see 'AI assistant integration (MCP)' in the README. Declining once isn't asked again until a newer release ships. Turn this off to manage the MCP server yourself — use SQLFluff > Set Up MCP Server for Copilot... to run the same check on demand regardless of this setting.")]
+        public bool CheckMcpServerOnStartup { get; set; } = true;
+
         // Not user-facing. The SQLFluff toolbar's `DefaultDocked` CommandFlag (SqlFluffPackage.vsct)
         // doesn't reliably make SSMS 22 show it on its own — see SqlFluffPackage.EnsureToolbarVisibleOnce,
         // which forces it visible via DTE.CommandBars once per extension version and records the
@@ -118,6 +123,13 @@ namespace SqlFluff.Ssms.Options
         // still gets one fresh chance to surface it.
         [Browsable(false)]
         public string ToolbarShownForVersion { get; set; } = string.Empty;
+
+        // Not user-facing. Mirrors ToolbarShownForVersion's pattern: records the latest release
+        // version the "set up MCP server" prompt was already shown for (accepted or declined), so
+        // a user who declines isn't nagged again on every startup — but a later release that
+        // ships a newer SqlFluff.Mcp.zip gets one fresh offer.
+        [Browsable(false)]
+        public string McpServerOfferedForVersion { get; set; } = string.Empty;
 
         public override void SaveSettingsToStorage()
         {
@@ -146,6 +158,7 @@ namespace SqlFluff.Ssms.Options
                 FixOnSave = FixOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
                 CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
+                CheckMcpServerOnStartup = CheckMcpServerOnStartup,
             };
         }
     }

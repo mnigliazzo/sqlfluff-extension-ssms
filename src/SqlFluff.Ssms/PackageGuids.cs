@@ -27,5 +27,6 @@ namespace SqlFluff.Ssms
         public const int CmdInstallSqlFluffTool = 0x0109;
         public const int CmdHelp = 0x010A;
         public const int CmdSqlFluffHelp = 0x010B;
+        public const int CmdSetupMcpServer = 0x010C;
     }
 }
