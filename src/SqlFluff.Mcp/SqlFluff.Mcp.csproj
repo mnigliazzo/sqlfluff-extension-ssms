@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <RootNamespace>SqlFluff.Mcp</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    Pure, VS-SDK-free files from the main VSIX project, linked directly (same pattern as
+    tests/SqlFluff.Ssms.Tests.csproj) instead of a ProjectReference, which would drag in
+    SqlFluff.Ssms.csproj's VSSDK.BuildTools targets and require SSMS/VS's own MSBuild.
+    Unlike the test project, this one also needs SqlFluffRunner.cs itself, since it's the
+    thing actually being exposed as MCP tools.
+  -->
+  <ItemGroup>
+    <Compile Include="..\SqlFluff.Ssms\Core\SqlFluffRunner.cs" Link="Sources\SqlFluffRunner.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\SqlFluffSettings.cs" Link="Sources\SqlFluffSettings.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\LintViolation.cs" Link="Sources\LintViolation.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\LintJsonParser.cs" Link="Sources\LintJsonParser.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\ArgumentQuoting.cs" Link="Sources\ArgumentQuoting.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\SqlFluffConfigResolver.cs" Link="Sources\SqlFluffConfigResolver.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\SqlFluffWorkingDirectoryResolver.cs" Link="Sources\SqlFluffWorkingDirectoryResolver.cs" />
+    <Compile Include="..\SqlFluff.Ssms\Core\SqlFluffVersionParser.cs" Link="Sources\SqlFluffVersionParser.cs" />
+  </ItemGroup>
+
+</Project>

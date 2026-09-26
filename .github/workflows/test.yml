@@ -22,3 +22,6 @@ jobs:
 
     - name: Test
       run: dotnet test tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj --configuration Release --logger "console;verbosity=normal"
+
+    - name: Test SqlFluff.Mcp
+      run: dotnet test tests/SqlFluff.Mcp.Tests/SqlFluff.Mcp.Tests.csproj --configuration Release --logger "console;verbosity=normal"
