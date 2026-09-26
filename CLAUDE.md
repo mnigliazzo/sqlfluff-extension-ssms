@@ -8,9 +8,11 @@ A VSIX extension (in-proc VSSDK package, targeting `net48`) that integrates [SQL
 
 SQLFluff itself is never bundled — it's a separate Python tool the user installs (`pip install sqlfluff`) and the extension shells out to.
 
+There's also a second, standalone project, `src/SqlFluff.Mcp` — an MCP (Model Context Protocol) server exposed over stdio that gives an AI coding assistant (e.g. Copilot in SSMS/VS) access to the same lint/fix/format pipeline, so AI-generated SQL can be run through it too. See [its own README](src/SqlFluff.Mcp/README.md) and [Architecture](#architecture) below — it doesn't require the VSIX, doesn't touch SSMS or an open editor, and shares no code path with it beyond the reused `Core/` files.
+
 ## Build commands
 
-There is only one project: `src/SqlFluff.Ssms/SqlFluff.Ssms.csproj`.
+Two projects. `src/SqlFluff.Ssms/SqlFluff.Ssms.csproj` is the VSIX; `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj` is the standalone MCP server.
 
 **Local development** (this repo was authored on a machine with SSMS 22 but no full Visual Studio, so local builds use SSMS's own bundled MSBuild):
 
@@ -28,6 +30,14 @@ The three env vars are required *only* when building with SSMS's bundled MSBuild
 Output: `src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.vsix` (plus the loose `.dll`/`.pkgdef`).
 
 **Always do a clean rebuild before treating a `.vsix` as release-ready** (`Remove-Item bin,obj -Recurse -Force` first). An incremental build has been observed to repackage a stale `extension.vsixmanifest` (wrong version number) even after the source manifest was edited.
+
+`SqlFluff.Mcp` is a plain `net8.0` console app — no VSSDK, no SSMS/VS MSBuild needed:
+
+```powershell
+dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
+```
+
+Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`.
 
 ## Tests
 
@@ -47,6 +57,7 @@ Three GitHub Actions workflows:
 
 - **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
 - **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. Just `dotnet test` on the `net8.0` test project; no MSBuild/SSMS setup needed.
+- **`.github/workflows/mcp-build.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. `dotnet build` on `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj`; same no-MSBuild-needed reasoning as `test.yml`. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
 - **`.github/workflows/release.yml`** (`windows-latest`) — runs on push to `main` (and manually via `workflow_dispatch`, with a `bump` input to force `patch`/`minor`/`major`). Looks up the `Unreleased` milestone; if it has no closed issues, the run is a no-op (a push with nothing user-facing just doesn't cut a release). Otherwise it computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag, builds with that version patched into the *workspace copy* of `AssemblyInfo.cs`/`source.extension.vsixmanifest` (never committed — see [Release process](#release-process)), groups the closed issues by label into Added/Fixed/Changed/Other (see [Issues, Milestones & Releases](CONTRIBUTING.md#issues-milestones--releases) in CONTRIBUTING.md), publishes a GitHub Release tagged `vX.Y.Z` with the built VSIX attached, and rotates `Unreleased` to `vX.Y.Z` (closed) plus a fresh `Unreleased`. Needs `permissions: contents: write` (create the release/tag) and `issues: write` (read issues, rename/close/create milestones) at the job level — the default `GITHUB_TOKEN` is read-only otherwise and these calls fail with a 403.
 
 Both workflows use `microsoft/setup-msbuild` to find the MSBuild bundled with the runner's Visual Studio 2022 — **do not** hardcode a path to SSMS's MSBuild in CI; SSMS is not installed on GitHub-hosted runners. That was tried and fails (`term not recognized`); only local dev machines that happen to have SSMS (and not full VS) need the SSMS MSBuild path + env var workaround described above.
@@ -114,3 +125,9 @@ The extension itself (not SQLFluff) can update in-place from SSMS, since it has 
 - `Core/` — SQLFluff process execution and settings model; no VS editor types, could in principle be unit tested standalone (though nothing currently does).
 - `Editor/` — MEF-composed editor extensibility points (tagger, suggested actions, the violation store they both read).
 - `Services/` — package-owned, non-MEF services (`LintService` orchestration, RDT/document-lifecycle glue, Error List, output pane/status bar logging via `OutputLog`, and `EditorServices` for locating the active SQL view / resolving a buffer's file path).
+
+### `src/SqlFluff.Mcp` is a second front-end over the same `Core/`, not a reimplementation
+
+It's a plain `net8.0` console app that stands up an MCP server over stdio (official `ModelContextProtocol` SDK, `Microsoft.Extensions.Hosting`-based — see `Program.cs`), exposing three tools that map 1:1 onto `SqlFluffRunner.LintAsync`/`FixAsync`/`FormatAsync`: `sqlfluff_lint`, `sqlfluff_fix`, `sqlfluff_format` (`SqlFluffTools.cs`). It links the same `Core/*.cs` files the VSIX compiles (`<Compile Include>`, same pattern `tests/SqlFluff.Ssms.Tests` uses — not a `ProjectReference`, which would drag in `SqlFluff.Ssms.csproj`'s VSSDK targets) rather than duplicating any lint/fix/format/config-discovery logic. `SqlFluffTools`'s `BuildSettings` helper calls `SqlFluffConfigResolver.Resolve` itself, mirroring `LintService.ResolveEffectiveSettings`, so a tool call discovers the same `.sqlfluff` a human editing the same project in SSMS would — the `filePath`/`workingDirectory`/`configFile` tool parameters exist specifically so this doesn't silently diverge from the VSIX's behavior.
+
+It has no dependency on the VSIX or an open SSMS instance (an AI assistant hands it raw SQL text and gets back violations/rewritten SQL — it never touches an `ITextBuffer`), and the VSIX has no dependency on it either; they're independent consumers of the same `Core/` logic, distributed and versioned separately. It's framework-dependent (`dotnet SqlFluff.Mcp.dll`), not a published `dotnet tool` — see its README for how an MCP client configures it, and stdout is reserved for the MCP protocol channel, so all logging in `Program.cs` is routed to stderr (`LogToStandardErrorThreshold`).

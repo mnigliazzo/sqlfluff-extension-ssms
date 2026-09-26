@@ -1,0 +1,24 @@
+name: MCP Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    # Plain net8.0 console app, no VSSDK/VS-MSBuild dependency - same reasoning as test.yml for
+    # why this doesn't need build.yml's windows-latest + SSMS-adjacent MSBuild setup.
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Build
+      run: dotnet build src/SqlFluff.Mcp/SqlFluff.Mcp.csproj --configuration Release
