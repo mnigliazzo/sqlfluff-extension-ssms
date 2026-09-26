@@ -17,15 +17,37 @@ namespace SqlFluff.Mcp
     [McpServerToolType]
     public static class SqlFluffTools
     {
+        private const string DialectDescription =
+            "sqlfluff dialect (e.g. tsql, postgres, snowflake). Defaults to tsql if omitted.";
+
+        private const string FilePathDescription =
+            "Absolute path of the file this SQL came from or would be saved as. Used so sqlfluff can " +
+            "infer file type from its extension and discover the nearest .sqlfluff config walking up " +
+            "from its directory - the file itself is never read from disk, and it doesn't need to exist " +
+            "yet as long as its directory does. Omit if there's no real or intended file path at all.";
+
+        private const string WorkingDirectoryDescription =
+            "Absolute path of the project/workspace root, used as the starting point for .sqlfluff " +
+            "config discovery when filePath is omitted or its directory doesn't exist either - the " +
+            "more reliable hint for AI-generated SQL with no real file path at all.";
+
+        private const string ConfigFileDescription =
+            "Absolute path to a .sqlfluff config file to use as a fallback. A .sqlfluff discovered near " +
+            "filePath or workingDirectory always takes precedence over this.";
+
+        private const string ExecutablePathDescription =
+            "Path or command name of the sqlfluff executable, if it isn't on this process's PATH (e.g. " +
+            "'C:\\Python312\\Scripts\\sqlfluff.exe'). Defaults to 'sqlfluff'.";
+
         [McpServerTool(Name = "sqlfluff_lint")]
         [Description("Lints SQL text with sqlfluff and returns the violations found, exactly as 'sqlfluff lint' would report them.")]
         public static async Task<LintToolResult> Lint(
             [Description("The SQL text to lint.")] string sql,
-            [Description("sqlfluff dialect (e.g. tsql, postgres, snowflake). Defaults to tsql if omitted.")] string dialect = null,
-            [Description("Absolute path of the file this SQL came from or would be saved as. Used only so sqlfluff can infer file type and discover the nearest .sqlfluff config walking up from its directory - the file itself is never read from disk. Omit if the SQL doesn't correspond to a real file yet.")] string filePath = null,
-            [Description("Absolute path of the project/workspace root. Used to discover a .sqlfluff config by walking upward from here when filePath doesn't exist on disk yet - the more reliable hint for AI-generated SQL that hasn't been saved.")] string workingDirectory = null,
-            [Description("Absolute path to a .sqlfluff config file to use as a fallback. A .sqlfluff discovered near filePath or workingDirectory always takes precedence over this.")] string configFile = null,
-            [Description("Path or command name of the sqlfluff executable, if it isn't on this process's PATH (e.g. 'C:\\Python312\\Scripts\\sqlfluff.exe'). Defaults to 'sqlfluff'.")] string executablePath = null,
+            [Description(DialectDescription)] string dialect = null,
+            [Description(FilePathDescription)] string filePath = null,
+            [Description(WorkingDirectoryDescription)] string workingDirectory = null,
+            [Description(ConfigFileDescription)] string configFile = null,
+            [Description(ExecutablePathDescription)] string executablePath = null,
             CancellationToken cancellationToken = default)
         {
             ValidateInputs(sql, filePath, workingDirectory, configFile);
@@ -60,11 +82,11 @@ namespace SqlFluff.Mcp
         [Description("Applies all of sqlfluff's fixable rules to SQL text and returns the rewritten SQL, exactly as 'sqlfluff fix' would.")]
         public static Task<RewriteToolResult> Fix(
             [Description("The SQL text to fix.")] string sql,
-            [Description("sqlfluff dialect (e.g. tsql, postgres, snowflake). Defaults to tsql if omitted.")] string dialect = null,
-            [Description("Absolute path of the file this SQL came from or would be saved as. Used only so sqlfluff can infer file type and discover the nearest .sqlfluff config walking up from its directory - the file itself is never read from disk. Omit if the SQL doesn't correspond to a real file yet.")] string filePath = null,
-            [Description("Absolute path of the project/workspace root. Used to discover a .sqlfluff config by walking upward from here when filePath doesn't exist on disk yet - the more reliable hint for AI-generated SQL that hasn't been saved.")] string workingDirectory = null,
-            [Description("Absolute path to a .sqlfluff config file to use as a fallback. A .sqlfluff discovered near filePath or workingDirectory always takes precedence over this.")] string configFile = null,
-            [Description("Path or command name of the sqlfluff executable, if it isn't on this process's PATH (e.g. 'C:\\Python312\\Scripts\\sqlfluff.exe'). Defaults to 'sqlfluff'.")] string executablePath = null,
+            [Description(DialectDescription)] string dialect = null,
+            [Description(FilePathDescription)] string filePath = null,
+            [Description(WorkingDirectoryDescription)] string workingDirectory = null,
+            [Description(ConfigFileDescription)] string configFile = null,
+            [Description(ExecutablePathDescription)] string executablePath = null,
             CancellationToken cancellationToken = default)
             => Rewrite(SqlFluffRunner.FixAsync, sql, dialect, filePath, workingDirectory, configFile, executablePath, cancellationToken);
 
@@ -72,11 +94,11 @@ namespace SqlFluff.Mcp
         [Description("Applies only sqlfluff's safe, stable formatting subset to SQL text and returns the rewritten SQL, exactly as 'sqlfluff format' would.")]
         public static Task<RewriteToolResult> Format(
             [Description("The SQL text to format.")] string sql,
-            [Description("sqlfluff dialect (e.g. tsql, postgres, snowflake). Defaults to tsql if omitted.")] string dialect = null,
-            [Description("Absolute path of the file this SQL came from or would be saved as. Used only so sqlfluff can infer file type and discover the nearest .sqlfluff config walking up from its directory - the file itself is never read from disk. Omit if the SQL doesn't correspond to a real file yet.")] string filePath = null,
-            [Description("Absolute path of the project/workspace root. Used to discover a .sqlfluff config by walking upward from here when filePath doesn't exist on disk yet - the more reliable hint for AI-generated SQL that hasn't been saved.")] string workingDirectory = null,
-            [Description("Absolute path to a .sqlfluff config file to use as a fallback. A .sqlfluff discovered near filePath or workingDirectory always takes precedence over this.")] string configFile = null,
-            [Description("Path or command name of the sqlfluff executable, if it isn't on this process's PATH (e.g. 'C:\\Python312\\Scripts\\sqlfluff.exe'). Defaults to 'sqlfluff'.")] string executablePath = null,
+            [Description(DialectDescription)] string dialect = null,
+            [Description(FilePathDescription)] string filePath = null,
+            [Description(WorkingDirectoryDescription)] string workingDirectory = null,
+            [Description(ConfigFileDescription)] string configFile = null,
+            [Description(ExecutablePathDescription)] string executablePath = null,
             CancellationToken cancellationToken = default)
             => Rewrite(SqlFluffRunner.FormatAsync, sql, dialect, filePath, workingDirectory, configFile, executablePath, cancellationToken);
 
@@ -92,11 +114,30 @@ namespace SqlFluff.Mcp
 
             string rewritten = await runnerMethod(sql, effectiveFilePath, settings, ct).ConfigureAwait(false);
 
+            // sqlfluff always emits LF-only output regardless of the input's line endings. Comparing
+            // that raw output straight against `sql` (as LintService.cs's VSIX equivalent explicitly
+            // avoids doing - see its DominantNewline/Replace calls) would report Changed=true for any
+            // CRLF-terminated input purely from the line-ending difference, and silently hand back SQL
+            // in a different line-ending convention than the caller sent.
+            string newline = DominantNewline(sql);
+            string normalized = rewritten.Replace("\r\n", "\n").Replace("\n", newline);
+
             return new RewriteToolResult
             {
-                Sql = rewritten,
-                Changed = rewritten != sql,
+                Sql = normalized,
+                Changed = !string.Equals(normalized, sql, StringComparison.Ordinal),
             };
+        }
+
+        internal static string DominantNewline(string text)
+        {
+            int index = text.IndexOf('\n');
+            if (index < 0)
+            {
+                return "\n";
+            }
+
+            return index > 0 && text[index - 1] == '\r' ? "\r\n" : "\n";
         }
 
         // Throwing McpException (rather than a plain ArgumentException) is what makes the SDK
@@ -119,9 +160,15 @@ namespace SqlFluff.Mcp
         // which has no defined relationship to the caller's project - could silently discover the
         // wrong .sqlfluff and diverge from what the same project's sqlfluff CLI/CI would report.
         // Rejecting relative paths outright is safer than guessing.
-        private static void RequireAbsoluteIfGiven(string path, string paramName)
+        //
+        // Path.IsPathRooted is not enough here: on Windows it returns true for a drive-relative path
+        // like "C:folder\file.sql" (no separator after the drive letter), which .NET then resolves
+        // against that drive's *current directory*, not the drive root - exactly the kind of
+        // silent-wrong-.sqlfluff resolution this check exists to prevent. IsPathFullyQualified
+        // correctly rejects that case.
+        internal static void RequireAbsoluteIfGiven(string path, string paramName)
         {
-            if (!string.IsNullOrWhiteSpace(path) && !Path.IsPathRooted(path))
+            if (!string.IsNullOrWhiteSpace(path) && !Path.IsPathFullyQualified(path))
             {
                 throw new McpException("'" + paramName + "' must be an absolute path, got: " + path);
             }
@@ -137,9 +184,34 @@ namespace SqlFluff.Mcp
             {
                 ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? "sqlfluff" : executablePath,
                 Dialect = string.IsNullOrWhiteSpace(dialect) ? "tsql" : dialect,
-                ConfigFile = SqlFluffConfigResolver.Resolve(filePath, workingDirectory, configFile),
+                ConfigFile = SqlFluffConfigResolver.Resolve(filePath, EffectiveWorkingDirectory(filePath, workingDirectory), configFile),
                 TimeoutSeconds = 60,
             };
+        }
+
+        // SqlFluffConfigResolver only walks up from filePath's directory when the file itself
+        // exists on disk (see its own doc comment - that's the right call for the VSIX, where an
+        // unsaved-new document's path is a meaningless placeholder). For AI-generated SQL that
+        // hasn't been saved yet, filePath is commonly a real, intended path under a real project
+        // directory that just doesn't have a file there yet - its directory is exactly as good a
+        // starting point for discovery as an explicit workingDirectory, so use it as a fallback
+        // openFolderPath instead of leaving discovery silently empty (matching what FilePathDescription
+        // above promises callers).
+        internal static string EffectiveWorkingDirectory(string filePath, string workingDirectory)
+        {
+            if (!string.IsNullOrWhiteSpace(workingDirectory) || string.IsNullOrWhiteSpace(filePath) || File.Exists(filePath))
+            {
+                return workingDirectory;
+            }
+
+            try
+            {
+                return Path.GetDirectoryName(Path.GetFullPath(filePath));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is PathTooLongException || ex is NotSupportedException)
+            {
+                return workingDirectory;
+            }
         }
 
         // SqlFluffRunner.PickWorkingDirectory requires a real, existing directory to walk up from

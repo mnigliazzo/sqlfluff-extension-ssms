@@ -491,10 +491,15 @@ namespace SqlFluff.Ssms.Core
         }
 
         // Internal (not private): reused by SqlFluffInstaller to locate 'py'/'python' for pip,
-        // independent of sqlfluff's own executable resolution above.
+        // independent of sqlfluff's own executable resolution above. Also linked into
+        // SqlFluff.Mcp, a plain cross-platform net8.0 console app - unlike the VSIX (Windows-only,
+        // since SSMS is Windows-only), so the bare name must be tried too: a pip-installed
+        // `sqlfluff` console script on Linux/macOS PATH has no extension at all.
         internal static string FindOnPath(string name)
         {
-            string[] extensions = Path.HasExtension(name) ? new[] { string.Empty } : new[] { ".exe", ".cmd", ".bat" };
+            string[] extensions = Path.HasExtension(name)
+                ? new[] { string.Empty }
+                : new[] { string.Empty, ".exe", ".cmd", ".bat" };
             string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             foreach (string dir in path.Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
             {
