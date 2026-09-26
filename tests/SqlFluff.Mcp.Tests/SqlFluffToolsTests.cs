@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using ModelContextProtocol;
 using SqlFluff.Mcp;
@@ -98,9 +99,29 @@ namespace SqlFluff.Mcp.Tests
         }
 
         [Fact]
-        public void EffectiveWorkingDirectory_PrefersExplicitWorkingDirectory_OverFilePath()
+        public void EffectiveWorkingDirectory_PrefersFilePathsDirectory_OverExplicitWorkingDirectory_WhenItExists()
         {
-            Assert.Equal(@"C:\explicit", SqlFluffTools.EffectiveWorkingDirectory(@"C:\other\query.sql", @"C:\explicit"));
+            string dir = Directory.CreateTempSubdirectory("sqlfluff-mcp-tests-").FullName;
+            try
+            {
+                string notYetSavedFile = Path.Combine(dir, "new_query.sql");
+
+                Assert.Equal(dir, SqlFluffTools.EffectiveWorkingDirectory(notYetSavedFile, "/some/unrelated/workingDirectory"));
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void EffectiveWorkingDirectory_FallsBackToWorkingDirectory_WhenFilePathsDirectoryAlsoDoesNotExist()
+        {
+            string doesNotExist = OperatingSystem.IsWindows()
+                ? @"C:\definitely\does\not\exist\query.sql"
+                : "/definitely/does/not/exist/query.sql";
+
+            Assert.Equal("/explicit", SqlFluffTools.EffectiveWorkingDirectory(doesNotExist, "/explicit"));
         }
 
         [Fact]
@@ -112,7 +133,8 @@ namespace SqlFluff.Mcp.Tests
         [Fact]
         public void RequireAbsoluteIfGiven_Accepts_FullyQualifiedPath()
         {
-            SqlFluffTools.RequireAbsoluteIfGiven(@"C:\project\query.sql", "filePath");
+            string absolute = OperatingSystem.IsWindows() ? @"C:\project\query.sql" : "/project/query.sql";
+            SqlFluffTools.RequireAbsoluteIfGiven(absolute, "filePath");
         }
 
         [Fact]

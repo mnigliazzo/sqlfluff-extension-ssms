@@ -196,22 +196,32 @@ namespace SqlFluff.Mcp
         // directory that just doesn't have a file there yet - its directory is exactly as good a
         // starting point for discovery as an explicit workingDirectory, so use it as a fallback
         // openFolderPath instead of leaving discovery silently empty (matching what FilePathDescription
-        // above promises callers).
+        // and WorkingDirectoryDescription above promise callers).
+        //
+        // filePath's own directory takes precedence over an explicitly-given workingDirectory
+        // whenever it exists - mirroring SqlFluffConfigResolver's own "most specific wins" precedence
+        // (a document's own directory over the broader open-folder root) rather than silently
+        // discarding the more specific hint just because a caller also passed workingDirectory
+        // "just in case". workingDirectory is the fallback for exactly the cases its own description
+        // states: filePath omitted, or its directory doesn't exist either.
         internal static string EffectiveWorkingDirectory(string filePath, string workingDirectory)
         {
-            if (!string.IsNullOrWhiteSpace(workingDirectory) || string.IsNullOrWhiteSpace(filePath) || File.Exists(filePath))
+            if (!string.IsNullOrWhiteSpace(filePath) && !File.Exists(filePath))
             {
-                return workingDirectory;
+                try
+                {
+                    string dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    {
+                        return dir;
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is PathTooLongException || ex is NotSupportedException)
+                {
+                }
             }
 
-            try
-            {
-                return Path.GetDirectoryName(Path.GetFullPath(filePath));
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is PathTooLongException || ex is NotSupportedException)
-            {
-                return workingDirectory;
-            }
+            return workingDirectory;
         }
 
         // SqlFluffRunner.PickWorkingDirectory requires a real, existing directory to walk up from

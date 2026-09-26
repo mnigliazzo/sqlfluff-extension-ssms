@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -493,13 +494,27 @@ namespace SqlFluff.Ssms.Core
         // Internal (not private): reused by SqlFluffInstaller to locate 'py'/'python' for pip,
         // independent of sqlfluff's own executable resolution above. Also linked into
         // SqlFluff.Mcp, a plain cross-platform net8.0 console app - unlike the VSIX (Windows-only,
-        // since SSMS is Windows-only), so the bare name must be tried too: a pip-installed
-        // `sqlfluff` console script on Linux/macOS PATH has no extension at all.
+        // since SSMS is Windows-only). On Windows, executables always carry one of these three
+        // extensions, so the search stays exactly as it was there (no bare-name check, which could
+        // otherwise match an unrelated extensionless file - e.g. a stray script or a WSL/Git-Bash
+        // shim - ahead of the real .exe sitting in a later PATH directory). On any other OS, a
+        // pip-installed `sqlfluff` console script has no extension at all, so only the bare name
+        // is tried there.
         internal static string FindOnPath(string name)
         {
-            string[] extensions = Path.HasExtension(name)
-                ? new[] { string.Empty }
-                : new[] { string.Empty, ".exe", ".cmd", ".bat" };
+            string[] extensions;
+            if (Path.HasExtension(name))
+            {
+                extensions = new[] { string.Empty };
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                extensions = new[] { ".exe", ".cmd", ".bat" };
+            }
+            else
+            {
+                extensions = new[] { string.Empty };
+            }
             string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             foreach (string dir in path.Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
             {
