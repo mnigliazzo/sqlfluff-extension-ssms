@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -15,6 +16,14 @@ namespace SqlFluff.Ssms.Services
         private readonly EditorServices _editor;
         private readonly LintService _lint;
         private readonly ConditionalWeakTable<ITextBuffer, object> _tracked = new ConditionalWeakTable<ITextBuffer, object>();
+
+        // Path per docCookie, captured whenever we successfully resolve it (attach/save) rather
+        // than re-resolved at close time. By OnBeforeLastDocumentUnlock, an unsaved-and-discarded
+        // document's IVsTextBuffer/adapter mapping can already be torn down, so
+        // TryGetBufferFromDocCookie fails there even though it worked moments earlier - without
+        // this cache, DocumentClosed never runs and the Error List entries for that document are
+        // orphaned permanently (there's no later event that would clear them).
+        private readonly Dictionary<uint, string> _cookiePaths = new Dictionary<uint, string>();
 
         public DocumentEvents(SqlFluffPackage package, IVsRunningDocumentTable rdt, EditorServices editor, LintService lint)
         {
@@ -52,10 +61,16 @@ namespace SqlFluff.Ssms.Services
         public int OnAfterSave(uint docCookie)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (_package.GetSettings().LintOnSave &&
-                _editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out string path))
+            if (_editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out string path))
             {
-                RunLint(buffer, path);
+                // Keep the cache in sync with e.g. a Save As on a previously-unsaved document,
+                // so a later close looks up the saved path rather than a stale moniker.
+                _cookiePaths[docCookie] = path;
+
+                if (_package.GetSettings().LintOnSave)
+                {
+                    RunLint(buffer, path);
+                }
             }
 
             return VSConstants.S_OK;
@@ -64,10 +79,18 @@ namespace SqlFluff.Ssms.Services
         public int OnBeforeLastDocumentUnlock(uint docCookie, uint dwRDTLockType, uint dwReadLocksRemaining, uint dwEditLocksRemaining)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (dwReadLocksRemaining == 0 && dwEditLocksRemaining == 0 &&
-                _editor.TryGetBufferFromDocCookie(_rdt, docCookie, out _, out string path))
+            if (dwReadLocksRemaining == 0 && dwEditLocksRemaining == 0)
             {
-                _lint.DocumentClosed(path);
+                string path = _editor.TryGetBufferFromDocCookie(_rdt, docCookie, out _, out string resolvedPath)
+                    ? resolvedPath
+                    : (_cookiePaths.TryGetValue(docCookie, out string cachedPath) ? cachedPath : null);
+
+                if (path != null)
+                {
+                    _lint.DocumentClosed(path);
+                }
+
+                _cookiePaths.Remove(docCookie);
             }
 
             return VSConstants.S_OK;
@@ -80,6 +103,8 @@ namespace SqlFluff.Ssms.Services
             {
                 return;
             }
+
+            _cookiePaths[docCookie] = path;
 
             bool firstTime = false;
             _tracked.GetValue(buffer, b =>
