@@ -98,19 +98,34 @@ namespace SqlFluff.Ssms
             // Also visible any time via Tools > Options > SQLFluff > Extension version.
             OutputLog.Write("SQLFluff for SSMS v" + GetType().Assembly.GetName().Version.ToString(3) + " loaded.");
 
-            // Non-blocking. Sequenced rather than two independent fire-and-forget tasks: both may
+            // Non-blocking. Sequenced rather than independent fire-and-forget tasks: all three may
             // call OutputLog.SetStatus, and running them concurrently would let whichever finishes
-            // last silently clobber the other's status bar text. The extension's own update notice
+            // last silently clobber another's status bar text. The extension's own update notice
             // (silent unless CheckForUpdatesOnStartup finds something, and never prompts on its
             // own) goes first, since the sqlfluff tool check that follows may pop a blocking
-            // install/upgrade prompt - the more actionable of the two, since nothing lints at all
-            // until sqlfluff itself is reachable.
+            // install/upgrade prompt - the most actionable of the three, since nothing lints at
+            // all until sqlfluff itself is reachable. The MCP server check goes last - it's purely
+            // optional convenience, so it shouldn't get to prompt before something the extension
+            // actually needs to function.
             JoinableTaskFactory.RunAsync(async () =>
             {
                 SqlFluffSettings startupSettings = GetSettings();
+
+                // Both checks below need "the latest GitHub release" - if either is enabled,
+                // fetch and parse it once here and hand the same in-flight Task to both, rather
+                // than hitting GitHub's unauthenticated, rate-limited API twice for identical data
+                // on every SSMS startup. Awaiting an already-completed Task from a second place is
+                // safe and instant (standard Task<T> behavior), and each check still does its own
+                // independent fetch when invoked manually (Check for Updates.../Set Up MCP Server
+                // for Copilot...).
+                Task<UpdateInfo> latestReleaseTask =
+                    (startupSettings.CheckForUpdatesOnStartup || startupSettings.CheckMcpServerOnStartup)
+                        ? Task.Run(() => ExtensionUpdater.GetLatestReleaseInfoAsync(CancellationToken.None))
+                        : null;
+
                 if (startupSettings.CheckForUpdatesOnStartup)
                 {
-                    await CheckForUpdatesAsync(userInitiated: false);
+                    await CheckForUpdatesAsync(userInitiated: false, latestReleaseTask);
                 }
 
                 if (startupSettings.CheckSqlFluffToolOnStartup)
@@ -120,7 +135,7 @@ namespace SqlFluff.Ssms
 
                 if (startupSettings.CheckMcpServerOnStartup)
                 {
-                    await CheckMcpServerAsync(userInitiated: false);
+                    await CheckMcpServerAsync(userInitiated: false, latestReleaseTask);
                 }
             }).Task.FileAndForget("sqlfluff/startup-checks");
         }
@@ -379,7 +394,7 @@ namespace SqlFluff.Ssms
         private void CheckMcpServer(bool userInitiated)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            JoinableTaskFactory.RunAsync(() => CheckMcpServerAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-mcp-server");
+            JoinableTaskFactory.RunAsync(() => CheckMcpServerAsync(userInitiated, prefetchedLatestRelease: null)).Task.FileAndForget("sqlfluff/check-mcp-server");
         }
 
         // Checks whether a newer SqlFluff.Mcp release is available than what's currently
@@ -389,7 +404,8 @@ namespace SqlFluff.Ssms
         // that one, the silent startup path (userInitiated: false) only prompts once per release
         // version (Options.McpServerOfferedForVersion) rather than every startup - this isn't
         // something the extension needs to function, unlike the sqlfluff tool itself.
-        private async Task CheckMcpServerAsync(bool userInitiated)
+        // prefetchedLatestRelease - see CheckForUpdatesAsync's doc comment.
+        private async Task CheckMcpServerAsync(bool userInitiated, Task<UpdateInfo> prefetchedLatestRelease)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             if (_mcpSetupInFlight)
@@ -413,7 +429,7 @@ namespace SqlFluff.Ssms
                 UpdateInfo latest;
                 try
                 {
-                    latest = await Task.Run(() => McpServerInstaller.GetLatestReleaseInfoAsync(CancellationToken.None));
+                    latest = await (prefetchedLatestRelease ?? Task.Run(() => ExtensionUpdater.GetLatestReleaseInfoAsync(CancellationToken.None)));
                 }
                 catch (UpdateCheckException ex)
                 {
@@ -442,21 +458,26 @@ namespace SqlFluff.Ssms
                 string localVersion = await Task.Run(() => McpServerInstaller.ReadLocalVersion());
                 bool alreadyUpToDate = localVersion == latest.Version && File.Exists(McpServerInstaller.DllPath);
 
-                var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
-                if (!userInitiated)
+                if (alreadyUpToDate)
                 {
-                    if (alreadyUpToDate || page.McpServerOfferedForVersion == latest.Version)
+                    // Already have the right DLL - no need to download or prompt, but still make
+                    // sure it's registered, regardless of how this run was triggered: the user may
+                    // have removed the .mcp.json entry by hand, or a previous run's registration
+                    // step may have failed after a successful install (e.g. .mcp.json was locked
+                    // at the time) - this is the retry for that, since a silent startup that only
+                    // checked "already offered this version?" would otherwise never try again.
+                    if (userInitiated)
                     {
-                        return;
+                        OutputLog.Write("SqlFluff.Mcp v" + latest.Version + " is already up to date at " + McpServerInstaller.ServerDirectory + ".");
                     }
+
+                    await RegisterMcpServerAsync(latest);
+                    return;
                 }
-                else if (alreadyUpToDate)
+
+                var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
+                if (!userInitiated && page.McpServerOfferedForVersion == latest.Version)
                 {
-                    // Already have the right DLL - no need to re-download or re-prompt, but still
-                    // make sure it's registered (e.g. the user removed the .mcp.json entry by hand
-                    // and re-ran this command expecting it back).
-                    OutputLog.Write("SqlFluff.Mcp v" + latest.Version + " is already up to date at " + McpServerInstaller.ServerDirectory + ".");
-                    await RegisterMcpServerAsync(latest, page);
                     return;
                 }
 
@@ -470,6 +491,10 @@ namespace SqlFluff.Ssms
                     "SQLFluff for SSMS: Set Up MCP Server for Copilot",
                     OLEMSGICON.OLEMSGICON_QUERY, OLEMSGBUTTON.OLEMSGBUTTON_YESNO, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
 
+                // Recorded only on an explicit decline for this version - never speculatively on
+                // the accept path (see InstallMcpServerAsync/RegisterMcpServerAsync) - so a
+                // transient install/registration failure doesn't wrongly suppress every future
+                // silent retry.
                 if (result != (int)VSConstants.MessageBoxResult.IDYES)
                 {
                     page.McpServerOfferedForVersion = latest.Version;
@@ -478,7 +503,7 @@ namespace SqlFluff.Ssms
                     return;
                 }
 
-                await InstallMcpServerAsync(latest, page);
+                await InstallMcpServerAsync(latest);
             }
             finally
             {
@@ -486,7 +511,7 @@ namespace SqlFluff.Ssms
             }
         }
 
-        private async Task InstallMcpServerAsync(UpdateInfo latest, SqlFluffOptionsPage page)
+        private async Task InstallMcpServerAsync(UpdateInfo latest)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             OutputLog.Write("Downloading SqlFluff.Mcp v" + latest.Version + "...");
@@ -506,18 +531,24 @@ namespace SqlFluff.Ssms
 
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             OutputLog.Write("SqlFluff.Mcp v" + latest.Version + " extracted to " + McpServerInstaller.ServerDirectory + ".");
-            await RegisterMcpServerAsync(latest, page);
+            await RegisterMcpServerAsync(latest);
+
+            // Not recorded speculatively before this point (see CheckMcpServerAsync) - but once
+            // the DLL itself is successfully installed, McpServerOfferedForVersion no longer
+            // matters for this version either way: CheckMcpServerAsync's alreadyUpToDate branch
+            // will short-circuit straight past the "already offered?" gate on every future check
+            // (startup or manual) and silently retry RegisterMcpServerAsync on its own if that
+            // part still needs to succeed - so there is nothing left to set here.
         }
 
         // Merges a "sqlfluff" entry into %USERPROFILE%\.mcp.json via McpJsonMerger (which leaves
         // the file untouched if a "sqlfluff" entry already exists or the file doesn't parse).
         // Split out from InstallMcpServerAsync so the "already up to date" path in
-        // CheckMcpServerAsync can re-verify/repair the registration without re-downloading.
-        private async Task RegisterMcpServerAsync(UpdateInfo latest, SqlFluffOptionsPage page)
+        // CheckMcpServerAsync can re-verify/repair the registration without re-downloading. Never
+        // touches Options.McpServerOfferedForVersion itself - see the callers for why.
+        private async Task RegisterMcpServerAsync(UpdateInfo latest)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
-            page.McpServerOfferedForVersion = latest.Version;
-            page.SaveSettingsToStorage();
 
             string mcpJsonPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mcp.json");
             string existingJson = null;
@@ -632,14 +663,17 @@ namespace SqlFluff.Ssms
         private void CheckForUpdates(bool userInitiated)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            JoinableTaskFactory.RunAsync(() => CheckForUpdatesAsync(userInitiated)).Task.FileAndForget("sqlfluff/check-for-updates");
+            JoinableTaskFactory.RunAsync(() => CheckForUpdatesAsync(userInitiated, prefetchedLatestRelease: null)).Task.FileAndForget("sqlfluff/check-for-updates");
         }
 
         // Checks GitHub for a newer release of the extension itself (not sqlfluff). The silent
         // startup check (userInitiated: false) only ever logs/sets status - it never prompts or
         // downloads anything on its own. The explicit "Check for Updates..." command additionally
-        // offers to download and launch the installer.
-        private async Task CheckForUpdatesAsync(bool userInitiated)
+        // offers to download and launch the installer. prefetchedLatestRelease lets
+        // InitializeAsync's startup-checks block share one "latest release" fetch with
+        // CheckMcpServerAsync instead of each doing its own; the manual command always passes null
+        // (fresh, on-demand data).
+        private async Task CheckForUpdatesAsync(bool userInitiated, Task<UpdateInfo> prefetchedLatestRelease)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
             if (userInitiated)
@@ -648,10 +682,10 @@ namespace SqlFluff.Ssms
             }
 
             string installedVersion = GetType().Assembly.GetName().Version.ToString(3);
-            UpdateInfo latest;
+            UpdateInfo raw;
             try
             {
-                latest = await Task.Run(() => ExtensionUpdater.CheckForNewerReleaseAsync(installedVersion, CancellationToken.None));
+                raw = await (prefetchedLatestRelease ?? Task.Run(() => ExtensionUpdater.GetLatestReleaseInfoAsync(CancellationToken.None)));
             }
             catch (UpdateCheckException ex)
             {
@@ -666,6 +700,7 @@ namespace SqlFluff.Ssms
             }
 
             await JoinableTaskFactory.SwitchToMainThreadAsync();
+            UpdateInfo latest = (raw != null && UpdateInfoParser.IsNewer(installedVersion, raw.Version)) ? raw : null;
             if (latest == null)
             {
                 if (userInitiated)

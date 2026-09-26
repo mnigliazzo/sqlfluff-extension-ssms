@@ -20,6 +20,10 @@ namespace SqlFluff.Ssms.Core
     // this VSIX's own install directory - that path is version/instance-specific and changes on
     // every update (including this extension's own self-update), which would silently break an
     // .mcp.json entry pointing at it. See README's "AI assistant integration (MCP)" section.
+    //
+    // "Latest release" lookups go through ExtensionUpdater.GetLatestReleaseInfoAsync (shared with
+    // the extension's own self-update check, so a startup with both checks enabled hits GitHub
+    // once, not twice) rather than living here.
     internal static class McpServerInstaller
     {
         public static readonly string ServerDirectory = Path.Combine(
@@ -30,18 +34,6 @@ namespace SqlFluff.Ssms.Core
         private const string DllFileName = "SqlFluff.Mcp.dll";
 
         public static string DllPath => Path.Combine(ServerDirectory, DllFileName);
-
-        // Returns the latest release's info by reusing ExtensionUpdater's fetch/parse pipeline.
-        // Unlike ExtensionUpdater.CheckForNewerReleaseAsync, this is NOT filtered by "newer than
-        // the installed extension version" - the Mcp bundle's freshness is judged against a
-        // separately tracked local marker (ReadLocalVersion), not this extension's own assembly
-        // version. Throws UpdateCheckException when the check itself couldn't run (same as
-        // ExtensionUpdater); returns null when the latest release doesn't parse as usable at all.
-        public static async Task<UpdateInfo> GetLatestReleaseInfoAsync(CancellationToken ct)
-        {
-            string json = await ExtensionUpdater.FetchLatestReleaseJsonAsync(ct).ConfigureAwait(false);
-            return UpdateInfoParser.Parse(json);
-        }
 
         // The release version SqlFluff.Mcp.dll was last extracted from, or null if it's never
         // been installed (or the marker can't be read).
@@ -58,29 +50,52 @@ namespace SqlFluff.Ssms.Core
             }
         }
 
-        // Downloads zipUrl and extracts it into ServerDirectory, replacing whatever was there
-        // (a stale extraction from an older version) rather than merging into it, then records
-        // `version` as the new local marker. Throws McpInstallException on failure so the caller
-        // can report specifically what went wrong, rather than leaving a half-updated directory
-        // and pretending nothing happened.
+        // Downloads zipUrl, extracts it into a temp staging directory, and only once that fully
+        // succeeds does it replace ServerDirectory's contents (delete old, move staging into
+        // place) and record `version` as the new local marker. Staging first - rather than
+        // deleting ServerDirectory up front - means a corrupt download or a failed extraction
+        // never leaves a previously-working install missing; the old install is only ever touched
+        // once the new one is known-good on disk. Throws McpInstallException on failure so the
+        // caller can report specifically what went wrong.
         public static async Task InstallAsync(string zipUrl, string version, CancellationToken ct)
         {
-            string tempZipPath = Path.Combine(Path.GetTempPath(), "SqlFluff.Mcp-" + Guid.NewGuid().ToString("N") + ".zip");
+            string tempZipPath = null;
+            string stagingDirectory = Path.Combine(Path.GetTempPath(), "SqlFluff.Mcp-staging-" + Guid.NewGuid().ToString("N"));
             try
             {
-                await DownloadAsync(zipUrl, tempZipPath, ct).ConfigureAwait(false);
+                try
+                {
+                    tempZipPath = await ExtensionUpdater.DownloadToTempFileAsync(zipUrl, "SqlFluff.Mcp", ".zip", ct).ConfigureAwait(false);
+                }
+                catch (HttpRequestException ex)
+                {
+                    throw new McpInstallException("Could not download SqlFluff.Mcp.zip: " + ex.Message);
+                }
+                catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // HttpClient's own Timeout firing surfaces as a TaskCanceledException too.
+                    throw new McpInstallException("Downloading SqlFluff.Mcp.zip timed out.");
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    throw new McpInstallException("Could not save SqlFluff.Mcp.zip: " + ex.Message);
+                }
 
                 try
                 {
+                    Directory.CreateDirectory(stagingDirectory);
+                    ZipFile.ExtractToDirectory(tempZipPath, stagingDirectory);
+                    File.WriteAllText(Path.Combine(stagingDirectory, VersionMarkerFileName), version);
+
+                    // Only now that the new bundle is fully staged and verified do we touch the
+                    // existing install.
                     if (Directory.Exists(ServerDirectory))
                     {
                         Directory.Delete(ServerDirectory, recursive: true);
                     }
 
-                    Directory.CreateDirectory(ServerDirectory);
-                    ZipFile.ExtractToDirectory(tempZipPath, ServerDirectory);
-
-                    File.WriteAllText(Path.Combine(ServerDirectory, VersionMarkerFileName), version);
+                    Directory.CreateDirectory(Path.GetDirectoryName(ServerDirectory));
+                    Directory.Move(stagingDirectory, ServerDirectory);
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
@@ -93,48 +108,40 @@ namespace SqlFluff.Ssms.Core
             }
             finally
             {
-                try
-                {
-                    if (File.Exists(tempZipPath))
-                    {
-                        File.Delete(tempZipPath);
-                    }
-                }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-                {
-                }
+                TryDelete(tempZipPath);
+                TryDeleteDirectory(stagingDirectory);
             }
         }
 
-        private static async Task DownloadAsync(string url, string destinationPath, CancellationToken ct)
+        private static void TryDelete(string filePath)
         {
             try
             {
-                using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) })
-                using (var request = new HttpRequestMessage(HttpMethod.Get, url))
-                using (HttpResponseMessage response = await client.SendAsync(request, ct).ConfigureAwait(false))
+                if (filePath != null && File.Exists(filePath))
                 {
-                    response.EnsureSuccessStatusCode();
-
-                    using (Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                    using (var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write))
-                    {
-                        await source.CopyToAsync(destination, 81920, ct).ConfigureAwait(false);
-                    }
+                    File.Delete(filePath);
                 }
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new McpInstallException("Could not download SqlFluff.Mcp.zip: " + ex.Message);
-            }
-            catch (TaskCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // HttpClient's own Timeout firing surfaces as a TaskCanceledException too.
-                throw new McpInstallException("Downloading SqlFluff.Mcp.zip timed out.");
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                throw new McpInstallException("Could not save SqlFluff.Mcp.zip: " + ex.Message);
+            }
+        }
+
+        // Best-effort - if InstallAsync succeeded, Directory.Move already emptied stagingDirectory
+        // out from under this path, so there's normally nothing left to clean up here; this only
+        // does real work when installation failed partway (e.g. after extraction but before the
+        // move) and left the staging directory behind.
+        private static void TryDeleteDirectory(string directoryPath)
+        {
+            try
+            {
+                if (directoryPath != null && Directory.Exists(directoryPath))
+                {
+                    Directory.Delete(directoryPath, recursive: true);
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
             }
         }
     }
