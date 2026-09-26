@@ -52,6 +52,7 @@ namespace SqlFluff.Ssms.Core
                         StartColumn = Math.Max(1, item.StartColumn ?? 1),
                         EndLine = item.EndLine ?? 0,
                         EndColumn = item.EndColumn ?? 0,
+                        IsFixable = item.Fixes == null || item.Fixes.Count > 0,
                     });
                 }
             }
@@ -76,6 +77,20 @@ namespace SqlFluff.Ssms.Core
             [DataMember(Name = "start_line_pos")] public int? StartColumn { get; set; }
             [DataMember(Name = "end_line_no")] public int? EndLine { get; set; }
             [DataMember(Name = "end_line_pos")] public int? EndColumn { get; set; }
+
+            // Only its presence/count is used (see LintViolation.IsFixable) - an empty array means
+            // sqlfluff has no autofix at all for this violation, as opposed to null/missing meaning
+            // an older sqlfluff version that didn't emit "fixes" (treated as "assume fixable", the
+            // prior behavior, so this can't regress on an older tool version).
+            [DataMember(Name = "fixes")] public List<LintFixItem> Fixes { get; set; }
+        }
+
+        // Empty on purpose - DataContractJsonSerializer ignores JSON members with no matching
+        // [DataMember], so this just counts how many fix objects sqlfluff reported without needing
+        // to model their (type/edit/position) shape.
+        [DataContract]
+        private sealed class LintFixItem
+        {
         }
     }
 }

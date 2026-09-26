@@ -129,51 +129,26 @@ namespace SqlFluff.Ssms.Core
                 return new SqlFluffAvailability(ex.Message, null);
             }
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = launch.FileName,
-                Arguments = (string.IsNullOrEmpty(launch.PrefixArguments) ? string.Empty : launch.PrefixArguments + " ") + "--version",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                RedirectStandardInput = true,
-            };
-
             try
             {
-                using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
-                using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token))
-                using (var process = new Process { StartInfo = psi })
+                SimpleRunResult result = await RunSimpleCommandAsync(launch, "--version", TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+
+                if (result.TimedOut)
                 {
-                    process.Start();
-                    process.StandardInput.Close();
-
-                    using (linked.Token.Register(() => TryKill(process)))
-                    {
-                        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-                        string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                        string stdout = await stdoutTask.ConfigureAwait(false);
-                        await Task.Run(() => process.WaitForExit()).ConfigureAwait(false);
-
-                        if (timeout.IsCancellationRequested)
-                        {
-                            return new SqlFluffAvailability("Checking for SQLFluff timed out (" + launch.FileName + ").", null);
-                        }
-
-                        if (process.ExitCode != 0)
-                        {
-                            ResetCache();
-                            string detail = stderr.Trim();
-                            return new SqlFluffAvailability(
-                                "SQLFluff did not run correctly (" + launch.FileName + ")" +
-                                (detail.Length > 0 ? ": " + detail : "."),
-                                null);
-                        }
-
-                        return new SqlFluffAvailability(null, SqlFluffVersionParser.Parse(stdout));
-                    }
+                    return new SqlFluffAvailability("Checking for SQLFluff timed out (" + launch.FileName + ").", null);
                 }
+
+                if (result.ExitCode != 0)
+                {
+                    ResetCache();
+                    string detail = result.StdErr.Trim();
+                    return new SqlFluffAvailability(
+                        "SQLFluff did not run correctly (" + launch.FileName + ")" +
+                        (detail.Length > 0 ? ": " + detail : "."),
+                        null);
+                }
+
+                return new SqlFluffAvailability(null, SqlFluffVersionParser.Parse(result.StdOut));
             }
             catch (System.ComponentModel.Win32Exception ex)
             {
@@ -182,6 +157,100 @@ namespace SqlFluff.Ssms.Core
                     "Could not start SQLFluff (" + launch.FileName + "): " + ex.Message +
                     ". Install it with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.",
                     null);
+            }
+        }
+
+        // Runs `sqlfluff --help` and returns its stdout - used by SQLFluff Documentation so the
+        // top-level CLI reference is available offline, without needing to reach docs.sqlfluff.com
+        // (which is still linked alongside it for the fuller rule/dialect/config reference that
+        // --help doesn't cover). Throws SqlFluffException on any failure, same convention as
+        // Lint/Fix/FormatAsync above, rather than returning an availability-style result: unlike
+        // CheckAvailabilityAsync this isn't a background probe, it's a one-shot user-requested
+        // action where a thrown exception is exactly what the caller wants to catch and report.
+        //
+        // Deliberately bypasses the Gate semaphore below (same as CheckAvailabilityAsync's
+        // --version probe) - Gate exists to cap concurrent lint/fix/format runs, which can be
+        // numerous and long-running (e.g. a folder-wide batch); a single, rare, near-instant
+        // --help/--version invocation temporarily exceeding that cap by one has no meaningful cost.
+        public static async Task<string> GetHelpAsync(SqlFluffSettings settings, CancellationToken ct)
+        {
+            Launch launch = Resolve(settings);
+
+            SimpleRunResult result;
+            try
+            {
+                result = await RunSimpleCommandAsync(launch, "--help", TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                ResetCache();
+                throw new SqlFluffException("Could not start SQLFluff (" + launch.FileName + "): " + ex.Message);
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(ct);
+            }
+
+            if (result.TimedOut)
+            {
+                throw new SqlFluffException("'sqlfluff --help' timed out.");
+            }
+
+            if (result.ExitCode != 0)
+            {
+                throw new SqlFluffException(Describe(new ProcessResult { ExitCode = result.ExitCode, StdOut = result.StdOut, StdErr = result.StdErr }));
+            }
+
+            return result.StdOut;
+        }
+
+        private sealed class SimpleRunResult
+        {
+            public bool TimedOut { get; set; }
+            public int ExitCode { get; set; }
+            public string StdOut { get; set; }
+            public string StdErr { get; set; }
+        }
+
+        // Shared by CheckAvailabilityAsync (--version) and GetHelpAsync (--help): both are
+        // single-shot, argument-only probes with no stdin payload, unlike RunAsync's lint/fix/format
+        // calls which pipe SQL text over stdin and go through the Gate semaphore below.
+        private static async Task<SimpleRunResult> RunSimpleCommandAsync(Launch launch, string argument, TimeSpan timeout, CancellationToken ct)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = launch.FileName,
+                Arguments = (string.IsNullOrEmpty(launch.PrefixArguments) ? string.Empty : launch.PrefixArguments + " ") + argument,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+            };
+
+            using (var timeoutCts = new CancellationTokenSource(timeout))
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token))
+            using (var process = new Process { StartInfo = psi })
+            {
+                process.Start();
+                process.StandardInput.Close();
+
+                using (linked.Token.Register(() => TryKill(process)))
+                {
+                    Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    string stdout = await stdoutTask.ConfigureAwait(false);
+                    await Task.Run(() => process.WaitForExit()).ConfigureAwait(false);
+
+                    return new SimpleRunResult
+                    {
+                        TimedOut = timeoutCts.IsCancellationRequested,
+                        ExitCode = process.ExitCode,
+                        StdOut = stdout,
+                        StdErr = stderr,
+                    };
+                }
             }
         }
 

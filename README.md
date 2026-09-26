@@ -7,12 +7,29 @@
 
 Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management Studio 22.
 
+## Why SQLFluff?
+
+SSMS's built-in formatter and "poor man's SQL formatter"-style tools only reformat locally, inside the IDE, with no way to enforce the same rules anywhere else. SQLFluff is a standalone CLI, so:
+
+- **The same tool runs in CI**: whatever `sqlfluff lint`/`fix` says in SSMS is exactly what a pipeline running plain `sqlfluff` against the repo will say — no separate "IDE formatter" and "CI linter" that can silently drift apart.
+- **Rules are configurable, not fixed**: a project's `.sqlfluff` controls which rules run, per-rule settings, and dialect-specific behavior — this extension doesn't hardcode a style, it just shells out to whatever config the project already has (or falls back to Options if there's none).
+- **Not tied to T-SQL**: SQLFluff supports many dialects (`tsql`, `postgres`, `snowflake`, `bigquery`, ...), so the same extension/config approach isn't a dead end if a project ever needs a different one.
+- **Deterministic, not AI-generated**: linting and fixing are rule-based, not an LLM guessing at formatting — the same input always produces the same output, and every change traces back to a specific, documented rule code instead of an unexplainable model decision.
+
+### Why wrap SQLFluff instead of bundling/reimplementing it?
+
+This extension never ships its own copy of SQLFluff or reimplements its rules — it always shells out to whatever `sqlfluff` the user has installed (see [SQLFluff tool setup](#sqlfluff-tool-setup)). That's deliberate, so this project can just ride on SQLFluff's own ongoing development instead of duplicating it:
+
+- SQLFluff ships new rules, dialects, and bugfixes on its own release cycle, maintained by a much larger community than this extension has. Wrapping the real CLI means this extension automatically picks all of that up the moment the user upgrades `sqlfluff` via pip — it doesn't need its own release to catch up, and doesn't need to re-solve problems SQLFluff has already solved.
+- It's what makes the CI-parity point above actually true. If the extension reimplemented or vendored its own partial copy of SQLFluff's rule engine, it could drift from what a pipeline running the real `sqlfluff` enforces; shelling out to the same executable makes that drift impossible by construction.
+
 ## Features
 
-- **Lint on save**: Diagnostics in Error List with squiggles in the editor (optionally also while typing)
+- **Lint on open, on save, and while typing**: Diagnostics in Error List with squiggles in the editor, matching how linters in other IDEs (e.g. ESLint in VS Code) behave — all independently configurable, on by default
 - **Lint**: Check the selection, or the whole document when nothing is selected
 - **Fix**: Apply all of SQLFluff's fixable rules to the selection or document
 - **Format**: Apply only SQLFluff's safe, stable subset of rules (like a formatter, not a full auto-fixer)
+- **Format on open, and Format/Fix on save**: optionally auto-rewrite on those triggers too, like VS Code/ESLint's "format/fix on save" — all off by default, and **Fix on save in particular can rewrite structure, not just style, on every save with no per-change review** (see [Configuration](#configuration) before turning it on)
 - **Folder-wide commands**: run Lint/Fix/Format across every `.sql` file under the open folder, not just the active document
 - **Light Bulb integration** (`Alt+.`): quick actions on a squiggle, including a "Fix this issue" that fixes just that one violation (best-effort — see below), a "Suppress this issue" that inserts an inline `-- noqa: <rule>` comment (sqlfluff's own suppression mechanism, so a pipeline running plain `sqlfluff` honors it the same way), plus whole-document Fix/Format
 - **Optional auto-save**: have Fix/Format save the document automatically (off by default — see [Configuration](#configuration))
@@ -20,6 +37,7 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **T-SQL ready**: Ships with `tsql` as the default dialect
 - **Update checks from within SSMS**: SQLFluff > Check for Updates... checks GitHub for a newer release and offers to download and install it — no separate manual download needed (see [Updating](#updating))
 - **No manual `pip install` needed**: on startup (and via SQLFluff > Install/Update SQLFluff Tool...), the extension checks whether the `sqlfluff` tool itself is installed and up to date, and offers to install/upgrade it via pip if not — see [SQLFluff tool setup](#sqlfluff-tool-setup)
+- **In-product help**: SQLFluff > Extension Help / Documentation opens this README in your browser; SQLFluff > SQLFluff Documentation prints `sqlfluff --help` to the output pane (works offline) plus a link to the full docs.sqlfluff.com reference for rules/dialects/config
 
 ## Installation
 
@@ -90,9 +108,12 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Config file | *(empty)* — fallback only, see below |
 | Timeout | 60 seconds |
 | Auto-save after fix | ✗ (Fix/Format leave the document dirty; you save manually) |
-| Format on save | ✗ (runs Format before the file is written when you save, like "format on save" in other editors) |
+| Lint on open | ✓ (diagnostics only — never rewrites the document) |
+| Format on open | ✗ (rewrites the buffer, marking it dirty, the moment a file is shown — off by default since it happens with no explicit action from you) |
 | Lint on save | ✓ |
-| Lint while typing | ✗ |
+| Format on save | ✗ (runs Format before the file is written when you save, like "format on save" in other editors) |
+| Fix on save | ✗ — **caution**: unlike Format, Fix can rewrite structure, not just style, on every save with no per-change review; try Fix manually first and review the diff before enabling this. Wins over Format on save if both are on |
+| Lint while typing | ✓ |
 | Report violations as | Warning |
 | Check for updates on startup | ✓ — silent unless a newer release is found (see [Updating](#updating)); never downloads or installs anything on its own |
 | Check SQLFluff tool on startup | ✓ — checks whether the `sqlfluff` tool is installed and up to date, prompting to install/upgrade via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup)); turn off on a machine without PyPI access, or to manage sqlfluff yourself |
