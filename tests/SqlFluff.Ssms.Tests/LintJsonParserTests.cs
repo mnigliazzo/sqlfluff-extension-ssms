@@ -63,6 +63,49 @@ namespace SqlFluff.Ssms.Tests
         }
 
         [Fact]
+        public void Parse_MarksViolationFixable_WhenFixesArrayIsNonEmpty()
+        {
+            const string json = @"[{""filepath"": ""stdin"", ""violations"": [{
+                ""code"": ""LT01"",
+                ""description"": ""spacing"",
+                ""fixes"": [{""type"": ""create_after"", ""edit"": "" ""}]
+            }]}]";
+
+            LintViolation violation = Assert.Single(LintJsonParser.Parse(json));
+
+            Assert.True(violation.IsFixable);
+        }
+
+        [Fact]
+        public void Parse_MarksViolationNotFixable_WhenFixesArrayIsEmpty()
+        {
+            // Real shape of an unfixable rule, e.g. AM04 "ambiguous column count" - sqlfluff reports
+            // the violation but an empty "fixes" array, and `sqlfluff fix --rules AM04` is a no-op.
+            const string json = @"[{""filepath"": ""stdin"", ""violations"": [{
+                ""code"": ""AM04"",
+                ""description"": ""ambiguous column count"",
+                ""fixes"": []
+            }]}]";
+
+            LintViolation violation = Assert.Single(LintJsonParser.Parse(json));
+
+            Assert.False(violation.IsFixable);
+        }
+
+        [Fact]
+        public void Parse_MarksViolationFixable_WhenFixesFieldIsMissing()
+        {
+            // Older sqlfluff versions may not emit "fixes" at all - treat that as "assume fixable"
+            // (the pre-IsFixable behavior) rather than silently disabling every "Fix this issue"
+            // Light Bulb action against an older tool.
+            const string json = @"[{""filepath"": ""stdin"", ""violations"": [{""code"": ""LT01"", ""description"": ""spacing""}]}]";
+
+            LintViolation violation = Assert.Single(LintJsonParser.Parse(json));
+
+            Assert.True(violation.IsFixable);
+        }
+
+        [Fact]
         public void Parse_TreatsParseErrorCodesAsParseErrors()
         {
             const string json = @"[{""filepath"": ""stdin"", ""violations"": [{""code"": ""PRS"", ""description"": ""parse error""}]}]";

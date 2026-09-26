@@ -35,7 +35,7 @@ namespace SqlFluff.Ssms.Services
             var cookies = new uint[1];
             while (enumerator.Next(1, cookies, out uint fetched) == VSConstants.S_OK && fetched == 1)
             {
-                Attach(cookies[0]);
+                Attach(cookies[0], isBulkAttach: true);
             }
         }
 
@@ -43,7 +43,7 @@ namespace SqlFluff.Ssms.Services
         {
             if (fFirstShow != 0)
             {
-                Attach(docCookie);
+                Attach(docCookie, isBulkAttach: false);
             }
 
             return VSConstants.S_OK;
@@ -73,7 +73,7 @@ namespace SqlFluff.Ssms.Services
             return VSConstants.S_OK;
         }
 
-        private void Attach(uint docCookie)
+        private void Attach(uint docCookie, bool isBulkAttach)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (!_editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer buffer, out string path))
@@ -96,10 +96,13 @@ namespace SqlFluff.Ssms.Services
 
             SqlFluffSettings settings = _package.GetSettings();
 
-            // Format on open (off by default - see SqlFluffOptionsPage) already re-lints once it's
-            // done (LintService.FormatOnOpenAsync), so it takes priority over a separate Lint on
-            // open run rather than doing both.
-            if (settings.FormatOnOpen)
+            // Format on open rewrites the buffer, so it's restricted to documents the user actually
+            // opens after the package has loaded (isBulkAttach == false) - not to every SQL tab that
+            // was already open when SSMS/the package started (AttachToOpenDocuments' bulk walk of
+            // the RDT). Without this, enabling it would silently reformat every restored tab at once
+            // on the next SSMS startup, which is a much bigger surprise than "format this one file
+            // I just opened" - the behavior its Options description promises.
+            if (settings.FormatOnOpen && !isBulkAttach)
             {
                 ThreadHelper.JoinableTaskFactory
                     .RunAsync(() => _lint.FormatOnOpenAsync(buffer, path))
@@ -111,7 +114,9 @@ namespace SqlFluff.Ssms.Services
             // lifecycle - it reuses this same Attach() hook, which is already relied on today to
             // wire up "Lint while typing" on first show, so it's at least as reliable as that. Gated
             // by its own setting (default on) so it can be turned off if it still misbehaves for
-            // some document lifecycle SSMS 22 exposes that this doesn't account for.
+            // some document lifecycle SSMS 22 exposes that this doesn't account for. Unlike Format
+            // on open, this runs for bulk-attached documents too (including on package load) since
+            // it only reports diagnostics rather than rewriting anything.
             if (settings.LintOnOpen)
             {
                 RunLint(buffer, path);

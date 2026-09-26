@@ -72,7 +72,7 @@ namespace SqlFluff.Ssms.Options
 
         [Category(TriggersCategory)]
         [DisplayName("Format on open")]
-        [Description("Run Format (the safe, stable rule subset) on a SQL document the first time it is shown, before you've touched it. Off by default - unlike Lint on open, this rewrites the buffer (marking it dirty) as soon as the file opens, with no explicit action from you.")]
+        [Description("Run Format (the safe, stable rule subset) on a SQL document the first time you open it, before you've touched it. Off by default - unlike Lint on open, this rewrites the buffer (marking it dirty) with no explicit action from you. Applies only to documents you open after this is turned on, not to tabs already open/restored when SSMS starts.")]
         public bool FormatOnOpen { get; set; } = false;
 
         [Category(TriggersCategory)]

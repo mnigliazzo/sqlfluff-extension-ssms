@@ -1,4 +1,5 @@
 using System;
+using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 
@@ -22,11 +23,28 @@ namespace SqlFluff.Ssms.Services
         // Brings the Output window's SQLFluff pane to the front (and shows the Output window
         // itself if it was closed) - used after writing something the user explicitly asked to
         // see (e.g. SQLFluff Documentation's `sqlfluff --help` dump), as opposed to Write's normal
-        // silent logging that a user has to go looking for.
+        // silent logging that a user has to go looking for. IVsOutputWindowPane.Activate() alone
+        // only switches panes within an already-visible Output window - it does not un-hide the
+        // window itself if the user closed it, so find/show that tool window frame first.
         public static void Show()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            GetPane()?.Activate();
+            IVsOutputWindowPane pane = GetPane();
+            if (pane == null)
+            {
+                return;
+            }
+
+            if (Package.GetGlobalService(typeof(SVsUIShell)) is IVsUIShell shell)
+            {
+                Guid outputWindowGuid = VSConstants.StandardToolWindows.Output;
+                if (ErrorHandler.Succeeded(shell.FindToolWindow((uint)__VSFINDTOOLWIN.FTW_fForceCreate, ref outputWindowGuid, out IVsWindowFrame frame)))
+                {
+                    frame?.Show();
+                }
+            }
+
+            pane.Activate();
         }
 
         public static void SetStatus(string text)
