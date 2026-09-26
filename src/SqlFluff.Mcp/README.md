@@ -35,8 +35,38 @@ Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`.
 
 ## Configuring an MCP client
 
-Point your MCP-capable client (e.g. an AI assistant integrated into SSMS or VS) at the
-built DLL, run with `dotnet`:
+Point your MCP-capable client at the built DLL, run with `dotnet`. There's no installer
+for this piece; it's just a `dotnet`-run executable, and nothing installs or registers it
+for you automatically - see the main [README](../../README.md#ai-assistant-integration-mcp)
+for why.
+
+### GitHub Copilot in SSMS / Visual Studio
+
+Either add it from Copilot Chat's Tools panel (**+** > **Add custom MCP server**, type
+`stdio`, command `dotnet`, args the full path to `SqlFluff.Mcp.dll`), or edit
+`%USERPROFILE%\.mcp.json` directly:
+
+```json
+{
+  "servers": {
+    "sqlfluff": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["C:\\path\\to\\SqlFluff.Mcp.dll"]
+    }
+  }
+}
+```
+
+SSMS/VS detects the change and initializes the server on save. New tools are added
+disabled by default - enable them in the Tools panel. See Microsoft's
+[Use MCP servers with GitHub Copilot in SQL Server Management Studio](https://learn.microsoft.com/ssms/github-copilot/mcp-servers)
+for more (registry install, per-solution vs. global config, tool approval).
+
+### Other MCP clients
+
+The config shape varies by client - consult its own MCP server documentation - but it
+boils down to the same `command`/`args` pair:
 
 ```json
 {
@@ -44,6 +74,3 @@ built DLL, run with `dotnet`:
   "args": ["C:\\path\\to\\SqlFluff.Mcp.dll"]
 }
 ```
-
-The exact place this config goes depends on the client - consult its own MCP server
-documentation. There's no installer for this piece; it's just a `dotnet`-run executable.

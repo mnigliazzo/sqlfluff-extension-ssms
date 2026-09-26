@@ -38,6 +38,7 @@ This extension never ships its own copy of SQLFluff or reimplements its rules �
 - **Update checks from within SSMS**: SQLFluff > Check for Updates... checks GitHub for a newer release and offers to download and install it — no separate manual download needed (see [Updating](#updating))
 - **No manual `pip install` needed**: on startup (and via SQLFluff > Install/Update SQLFluff Tool...), the extension checks whether the `sqlfluff` tool itself is installed and up to date, and offers to install/upgrade it via pip if not — see [SQLFluff tool setup](#sqlfluff-tool-setup)
 - **In-product help**: SQLFluff > Extension Help / Documentation opens this README in your browser; SQLFluff > SQLFluff Documentation prints `sqlfluff --help` to the output pane (works offline) plus a link to the full docs.sqlfluff.com reference for rules/dialects/config
+- **AI assistant integration**: a separate MCP server (`SqlFluff.Mcp`, not installed by this VSIX) exposes the same lint/fix/format pipeline to GitHub Copilot in SSMS — see [AI assistant integration (MCP)](#ai-assistant-integration-mcp)
 
 ## Installation
 
@@ -119,6 +120,39 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Check SQLFluff tool on startup | ✓ — checks whether the `sqlfluff` tool is installed and up to date, prompting to install/upgrade via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup)); turn off on a machine without PyPI access, or to manage sqlfluff yourself |
 
 **Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
+
+## AI assistant integration (MCP)
+
+This VSIX doesn't install or configure this on its own — it's a separate, standalone piece you set up once if you want it.
+
+[`src/SqlFluff.Mcp`](src/SqlFluff.Mcp) is a second, independent front-end over the same lint/fix/format pipeline, exposed as an [MCP](https://modelcontextprotocol.io) server over stdio, so GitHub Copilot (or any other MCP-capable AI assistant) in SSMS can run SQL it just wrote through the project's actual `.sqlfluff` config before handing it back to you — instead of guessing at formatting. It has no dependency on this VSIX and isn't installed by it; see its own [README](src/SqlFluff.Mcp/README.md) for the full tool reference.
+
+**Setup:**
+
+1. Build it (requires the [.NET 8 SDK](https://dotnet.microsoft.com/download), nothing SSMS/VS-specific):
+   ```bash
+   dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
+   ```
+   Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`
+2. Register it with Copilot in SSMS — either:
+   - **From Copilot Chat**: open the **Tools** panel → **+** → **Add custom MCP server** → Server ID `sqlfluff`, Type `stdio`, Command `dotnet`, Args the full path to the DLL from step 1. New tools are added disabled by default — enable them in the same panel.
+   - **By hand**: create/edit `%USERPROFILE%\.mcp.json`:
+     ```json
+     {
+       "servers": {
+         "sqlfluff": {
+           "type": "stdio",
+           "command": "dotnet",
+           "args": ["C:\\full\\path\\to\\SqlFluff.Mcp.dll"]
+         }
+       }
+     }
+     ```
+     SSMS picks up the change and initializes the server automatically on save.
+
+See Microsoft's [Use MCP servers with GitHub Copilot in SQL Server Management Studio](https://learn.microsoft.com/ssms/github-copilot/mcp-servers) for the host side of this (registry install, per-solution vs. global config, tool approval).
+
+**Why this isn't wired up automatically:** the VSIX installs into a version/instance-specific folder that changes on every update (including this extension's own self-update), so anything the installer wrote into `.mcp.json` pointing at that path would go stale the next time the extension updates or is reinstalled. Doing this safely means bundling the MCP server inside the VSIX and having it copy itself to a stable, version-independent location on every load — which hasn't been built yet (see [its README](src/SqlFluff.Mcp/README.md) for the current state).
 
 ## Building
 
