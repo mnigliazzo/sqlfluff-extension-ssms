@@ -19,13 +19,14 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 - **Configurable**: Dialect, rules, exclusions, and triggers
 - **T-SQL ready**: Ships with `tsql` as the default dialect
 - **Update checks from within SSMS**: SQLFluff > Check for Updates... checks GitHub for a newer release and offers to download and install it — no separate manual download needed (see [Updating](#updating))
+- **No manual `pip install` needed**: on startup (and via SQLFluff > Install/Update SQLFluff Tool...), the extension checks whether the `sqlfluff` tool itself is installed and up to date, and offers to install/upgrade it via pip if not — see [SQLFluff tool setup](#sqlfluff-tool-setup)
 
 ## Installation
 
 ### Prerequisites
 
 - SQL Server Management Studio 22.x
-- Python 3.7+ with SQLFluff:
+- Python 3.7+ with pip (needed so the extension can install/update SQLFluff itself for you — see below). If you'd rather install SQLFluff yourself ahead of time:
   ```bash
   pip install sqlfluff
   ```
@@ -43,6 +44,15 @@ Integrates SQLFluff (the SQL linter and formatter) into SQL Server Management St
 
 Once installed, new versions no longer require a manual download: **SQLFluff > Check for Updates...** checks GitHub for the latest release and, if it's newer than what's installed, offers to download and launch the installer for you (the same installer that runs when you double-click a `.vsix` — SSMS may need to close for it to finish). The extension also checks silently on startup and notes an available update in the SQLFluff output pane and status bar without downloading anything on its own; disable that with **Check for updates on startup** in Options (see [Configuration](#configuration)).
 
+### SQLFluff tool setup
+
+This is about the `sqlfluff` *tool* itself (the Python linter this extension shells out to) — separate from the extension update check above. Every time SSMS starts, and any time you run **SQLFluff > Install/Update SQLFluff Tool...**, the extension:
+
+1. Checks whether `sqlfluff` is reachable at all. If not, it prompts to install it now via `pip install sqlfluff` (this needs Python and pip already on `PATH` — installing Python itself is out of scope).
+2. If it is reachable, checks its version against the latest release on PyPI and, if outdated, prompts to upgrade via `pip install --upgrade sqlfluff`.
+
+Either prompt, if accepted, runs pip in the background and streams its output to the SQLFluff output pane; declining either one just leaves a note in the status bar and output pane instead of pip installing/upgrading anything. Disable the startup check entirely with **Check SQLFluff tool on startup** in Options (see [Configuration](#configuration)) — the manual command still runs it on demand either way.
+
 ## Usage
 
 **Tools > SQLFluff**:
@@ -53,6 +63,7 @@ Once installed, new versions no longer require a manual download: **SQLFluff > C
 - **Lint/Fix/Format All Files in Folder** — run against every `.sql` file under the open folder instead of just the active document. Fix/Format confirm before rewriting files on disk and skip any file with unsaved editor changes. Progress is reported in the status bar as each file is processed (`fixing 12/80 — path\to\file.sql`); running the same command again while it's in progress cancels it.
 - **Options** — Configure the extension
 - **Check for Updates...** — Check GitHub for a newer version of the extension and, if found, offer to download and install it (see [Updating](#updating))
+- **Install/Update SQLFluff Tool...** — Check whether the `sqlfluff` tool is installed and up to date, and offer to install/upgrade it via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup))
 
 **Keyboard**:
 - `Ctrl+K, Ctrl+Shift+L` — Lint
@@ -84,6 +95,7 @@ Files open in the editor are always read from the live buffer, so this only appl
 | Lint while typing | ✗ |
 | Report violations as | Warning |
 | Check for updates on startup | ✓ — silent unless a newer release is found (see [Updating](#updating)); never downloads or installs anything on its own |
+| Check SQLFluff tool on startup | ✓ — checks whether the `sqlfluff` tool is installed and up to date, prompting to install/upgrade via pip if not (see [SQLFluff tool setup](#sqlfluff-tool-setup)); turn off on a machine without PyPI access, or to manage sqlfluff yourself |
 
 **Config file priority**: a `.sqlfluff` found by walking up from the open document's folder (or, for an unsaved new document, from the currently open folder/project root) always wins over the "Config file" set here. That Options setting is only a fallback for documents with no `.sqlfluff` findable near them at all.
 

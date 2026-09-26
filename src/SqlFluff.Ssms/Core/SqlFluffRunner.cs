@@ -9,9 +9,39 @@ using System.Threading.Tasks;
 
 namespace SqlFluff.Ssms.Core
 {
-    internal sealed class SqlFluffException : Exception
+    internal class SqlFluffException : Exception
     {
         public SqlFluffException(string message) : base(message) { }
+    }
+
+    // Thrown specifically when a non-default, explicitly configured Options > SQLFluff >
+    // Executable path doesn't resolve. Distinguished from the plain "not found anywhere" case
+    // (SqlFluffException) because installing/upgrading sqlfluff via pip elsewhere can never fix
+    // this - the fix is to correct or clear that Options setting - so callers need to tell the two
+    // apart rather than offer a pip install that's guaranteed not to help.
+    internal sealed class SqlFluffConfiguredPathNotFoundException : SqlFluffException
+    {
+        public SqlFluffConfiguredPathNotFoundException(string message) : base(message) { }
+    }
+
+    // Result of CheckAvailabilityAsync: null Error means sqlfluff ran fine, with Version parsed
+    // from its --version output when possible (null if the output didn't match the expected
+    // format - callers should treat that as "can't tell" rather than fail the whole check).
+    // IsConfiguredPathInvalid is true only for the SqlFluffConfiguredPathNotFoundException case
+    // above - see its doc comment for why callers need to handle that one differently.
+    internal sealed class SqlFluffAvailability
+    {
+        public SqlFluffAvailability(string error, string version, bool isConfiguredPathInvalid = false)
+        {
+            Error = error;
+            Version = version;
+            IsConfiguredPathInvalid = isConfiguredPathInvalid;
+        }
+
+        public bool IsAvailable => Error == null;
+        public string Error { get; }
+        public string Version { get; }
+        public bool IsConfiguredPathInvalid { get; }
     }
 
     internal static class SqlFluffRunner
@@ -80,17 +110,23 @@ namespace SqlFluff.Ssms.Core
             }
         }
 
-        // Returns null when sqlfluff is reachable and runnable, otherwise a user-facing description of the problem.
-        public static async Task<string> CheckAvailabilityAsync(SqlFluffSettings settings, CancellationToken ct)
+        // Checks that sqlfluff is reachable and runnable, and reports its version. A non-null
+        // Error on the result means it isn't; Version is best-effort and only ever set alongside a
+        // null Error.
+        public static async Task<SqlFluffAvailability> CheckAvailabilityAsync(SqlFluffSettings settings, CancellationToken ct)
         {
             Launch launch;
             try
             {
                 launch = Resolve(settings);
             }
+            catch (SqlFluffConfiguredPathNotFoundException ex)
+            {
+                return new SqlFluffAvailability(ex.Message, null, isConfiguredPathInvalid: true);
+            }
             catch (SqlFluffException ex)
             {
-                return ex.Message;
+                return new SqlFluffAvailability(ex.Message, null);
             }
 
             var psi = new ProcessStartInfo
@@ -115,31 +151,37 @@ namespace SqlFluff.Ssms.Core
 
                     using (linked.Token.Register(() => TryKill(process)))
                     {
+                        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
                         string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                        string stdout = await stdoutTask.ConfigureAwait(false);
                         await Task.Run(() => process.WaitForExit()).ConfigureAwait(false);
 
                         if (timeout.IsCancellationRequested)
                         {
-                            return "Checking for SQLFluff timed out (" + launch.FileName + ").";
+                            return new SqlFluffAvailability("Checking for SQLFluff timed out (" + launch.FileName + ").", null);
                         }
 
                         if (process.ExitCode != 0)
                         {
                             ResetCache();
                             string detail = stderr.Trim();
-                            return "SQLFluff did not run correctly (" + launch.FileName + ")" +
-                                   (detail.Length > 0 ? ": " + detail : ".");
+                            return new SqlFluffAvailability(
+                                "SQLFluff did not run correctly (" + launch.FileName + ")" +
+                                (detail.Length > 0 ? ": " + detail : "."),
+                                null);
                         }
 
-                        return null;
+                        return new SqlFluffAvailability(null, SqlFluffVersionParser.Parse(stdout));
                     }
                 }
             }
             catch (System.ComponentModel.Win32Exception ex)
             {
                 ResetCache();
-                return "Could not start SQLFluff (" + launch.FileName + "): " + ex.Message +
-                       ". Install it with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.";
+                return new SqlFluffAvailability(
+                    "Could not start SQLFluff (" + launch.FileName + "): " + ex.Message +
+                    ". Install it with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.",
+                    null);
             }
         }
 
@@ -333,8 +375,9 @@ namespace SqlFluff.Ssms.Core
                 string resolved = File.Exists(configured) ? configured : FindOnPath(configured);
                 if (resolved == null)
                 {
-                    throw new SqlFluffException("The configured SQLFluff executable was not found: " + configured +
-                                                ". Check Tools > Options > SQLFluff > General.");
+                    throw new SqlFluffConfiguredPathNotFoundException(
+                        "The configured SQLFluff executable was not found: " + configured +
+                        ". Check Tools > Options > SQLFluff > General.");
                 }
 
                 return new Launch(resolved, null);
@@ -378,7 +421,9 @@ namespace SqlFluff.Ssms.Core
             return launch;
         }
 
-        private static string FindOnPath(string name)
+        // Internal (not private): reused by SqlFluffInstaller to locate 'py'/'python' for pip,
+        // independent of sqlfluff's own executable resolution above.
+        internal static string FindOnPath(string name)
         {
             string[] extensions = Path.HasExtension(name) ? new[] { string.Empty } : new[] { ".exe", ".cmd", ".bat" };
             string path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;

@@ -133,6 +133,16 @@
           <ToolTipText>Check GitHub for a newer version of the SQLFluff for SSMS extension, and install it</ToolTipText>
         </Strings>
       </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidInstallSqlFluffTool" priority="0x0102" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" />
+        <Icon guid="ImageCatalogGuid" id="Download" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>&amp;Install/Update SQLFluff Tool...</ButtonText>
+          <ToolTipText>Check whether the sqlfluff Python tool is installed and up to date, and install/upgrade it via pip if needed</ToolTipText>
+        </Strings>
+      </Button>
     </Buttons>
 
   </Commands>
@@ -188,6 +198,7 @@
       <IDSymbol name="cmdidFixFolder" value="0x0106" />
       <IDSymbol name="cmdidFormatFolder" value="0x0107" />
       <IDSymbol name="cmdidCheckForUpdates" value="0x0108" />
+      <IDSymbol name="cmdidInstallSqlFluffTool" value="0x0109" />
     </GuidSymbol>
   </Symbols>
 
