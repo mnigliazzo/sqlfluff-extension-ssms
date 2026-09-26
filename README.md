@@ -129,11 +129,13 @@ This VSIX doesn't install or configure this on its own — it's a separate, stan
 
 **Setup:**
 
-1. Build it (requires the [.NET 8 SDK](https://dotnet.microsoft.com/download), nothing SSMS/VS-specific):
-   ```bash
-   dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
-   ```
-   Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`
+1. Get the DLL — no build required:
+   - Download `SqlFluff.Mcp.zip` from [the latest release](../../releases/latest) and unzip it wherever you want (needs the [.NET 8 runtime](https://dotnet.microsoft.com/download) installed, same as running any other `dotnet`-based tool)
+   - Or build it yourself from source (requires the .NET 8 SDK instead of just the runtime):
+     ```bash
+     dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
+     ```
+     Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`
 2. Register it with Copilot in SSMS — either:
    - **From Copilot Chat**: open the **Tools** panel → **+** → **Add custom MCP server** → Server ID `sqlfluff`, Type `stdio`, Command `dotnet`, Args the full path to the DLL from step 1. New tools are added disabled by default — enable them in the same panel.
    - **By hand**: create/edit `%USERPROFILE%\.mcp.json`:
@@ -152,7 +154,7 @@ This VSIX doesn't install or configure this on its own — it's a separate, stan
 
 See Microsoft's [Use MCP servers with GitHub Copilot in SQL Server Management Studio](https://learn.microsoft.com/ssms/github-copilot/mcp-servers) for the host side of this (registry install, per-solution vs. global config, tool approval).
 
-**Why this isn't wired up automatically:** the VSIX installs into a version/instance-specific folder that changes on every update (including this extension's own self-update), so anything the installer wrote into `.mcp.json` pointing at that path would go stale the next time the extension updates or is reinstalled. Doing this safely means bundling the MCP server inside the VSIX and having it copy itself to a stable, version-independent location on every load — which hasn't been built yet (see [its README](src/SqlFluff.Mcp/README.md) for the current state).
+**Why registration (step 2) isn't automatic:** the VSIX installs into a version/instance-specific folder that changes on every update (including this extension's own self-update), so if the installer wrote `.mcp.json` pointing at *that* path, it would go stale the next time the extension updates or is reinstalled. Since you place `SqlFluff.Mcp.zip`'s contents wherever you like, that problem doesn't apply to the DLL itself — only the VSIX's own install location has it — which is why the build/download in step 1 is fully automated (every release) but the `.mcp.json` registration in step 2 is still a manual, one-time step.
 
 ## Building
 

@@ -180,6 +180,18 @@ jobs:
         msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
       shell: pwsh
 
+    # Framework-dependent (needs the .NET 8 runtime on the machine running it, same as
+    # `dotnet SqlFluff.Mcp.dll` always has) — not self-contained, so this is just the DLL plus
+    # its own NuGet dependencies, zipped up so a user can drop it anywhere and point an MCP
+    # client's config at it without building anything themselves. Independent of, and not a
+    # dependency of, the VSIX build above — see AI assistant integration (MCP) in the README.
+    - name: Publish & zip SqlFluff.Mcp
+      if: steps.version.outputs.hasWork == 'true'
+      run: |
+        dotnet publish src/SqlFluff.Mcp/SqlFluff.Mcp.csproj -c Release -o src/SqlFluff.Mcp/bin/Release/publish
+        Compress-Archive -Path src/SqlFluff.Mcp/bin/Release/publish/* -DestinationPath src/SqlFluff.Mcp/bin/Release/SqlFluff.Mcp.zip
+      shell: pwsh
+
     - name: Create Release
       if: steps.version.outputs.hasWork == 'true'
       uses: softprops/action-gh-release@v3
@@ -200,8 +212,12 @@ jobs:
           - SSMS 22.x
           - Python 3.7+ with SQLFluff: `pip install sqlfluff`
 
+          **AI assistant integration (optional)**: `SqlFluff.Mcp.zip` is a separate, standalone MCP server exposing the same lint/fix/format pipeline to GitHub Copilot in SSMS — download it, unzip anywhere, and point your MCP client's config at the `.dll` inside (needs the .NET 8 runtime; no building required). See [AI assistant integration (MCP)](https://github.com/${{ github.repository }}#ai-assistant-integration-mcp) in the README for setup steps.
+
           See the [README](https://github.com/${{ github.repository }}#readme) for usage and configuration, and [all releases](https://github.com/${{ github.repository }}/releases) for the full history.
-        files: src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
+        files: |
+          src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
+          src/SqlFluff.Mcp/bin/Release/SqlFluff.Mcp.zip
         draft: false
         prerelease: false
       env:

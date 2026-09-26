@@ -25,7 +25,14 @@ the usual case for AI-generated SQL. `configFile` is a fallback used only when n
 is discovered. `dialect` defaults to `tsql`; `executablePath` is only needed if `sqlfluff`
 isn't on this process's PATH.
 
-## Build
+## Getting the DLL
+
+No build required for normal use - every GitHub Release attaches a `SqlFluff.Mcp.zip`
+built by CI. Download it from [the latest release](../../../../releases/latest) and unzip
+it anywhere (needs the .NET 8 runtime installed; it's framework-dependent, not
+self-contained).
+
+To build from source instead (e.g. for local changes), you need the .NET 8 SDK:
 
 ```powershell
 dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
@@ -35,10 +42,10 @@ Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`.
 
 ## Configuring an MCP client
 
-Point your MCP-capable client at the built DLL, run with `dotnet`. There's no installer
-for this piece; it's just a `dotnet`-run executable, and nothing installs or registers it
-for you automatically - see the main [README](../../README.md#ai-assistant-integration-mcp)
-for why.
+Point your MCP-capable client at the DLL (from either option above), run with `dotnet`.
+There's no installer for this piece, and nothing registers it with a client for you
+automatically - see the main [README](../../README.md#ai-assistant-integration-mcp) for
+why registration in particular stays manual.
 
 ### GitHub Copilot in SSMS / Visual Studio
 
