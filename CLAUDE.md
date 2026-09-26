@@ -51,13 +51,20 @@ It only covers the pure logic that can be extracted without touching `Process`/V
 
 **When adding new pure logic to `Core/`** (parsing, string manipulation, anything that doesn't touch `ITextBuffer`/`Process`/VS SDK types), prefer putting it in its own file so it can be linked into the test project the same way, and add tests for it. Logic that inherently needs the VS SDK (editor services, tagging, commands) has no test coverage and isn't expected to — there's no reasonable way to unit test that without a running SSMS/VS host.
 
+`tests/SqlFluff.Mcp.Tests/SqlFluff.Mcp.Tests.csproj` covers `SqlFluff.Mcp`'s own pure logic (`SqlFluffTools.BuildSettings`/`ResolveFilePathHint`, `internal` + `[assembly: InternalsVisibleTo("SqlFluff.Mcp.Tests")]`):
+
+```bash
+dotnet test tests/SqlFluff.Mcp.Tests/SqlFluff.Mcp.Tests.csproj
+```
+
+Unlike `SqlFluff.Ssms.Tests`, this one uses a normal `ProjectReference` to `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj` instead of linked `<Compile Include>` — `SqlFluff.Mcp` is already a plain `net8.0` console app with no VSSDK dependency of its own, so a `ProjectReference` doesn't drag in anything SSMS/VS-MSBuild-specific.
+
 ## CI/CD
 
 Three GitHub Actions workflows:
 
 - **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
-- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. Just `dotnet test` on the `net8.0` test project; no MSBuild/SSMS setup needed.
-- **`.github/workflows/mcp-build.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. `dotnet build` on `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj`; same no-MSBuild-needed reasoning as `test.yml`. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
+- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. `dotnet test` on both net8.0 test projects (`SqlFluff.Ssms.Tests`, `SqlFluff.Mcp.Tests`) — the latter also builds `SqlFluff.Mcp` itself via its `ProjectReference`, so there's no separate build check for it. No MSBuild/SSMS setup needed for either. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
 - **`.github/workflows/release.yml`** (`windows-latest`) — runs on push to `main` (and manually via `workflow_dispatch`, with a `bump` input to force `patch`/`minor`/`major`). Looks up the `Unreleased` milestone; if it has no closed issues, the run is a no-op (a push with nothing user-facing just doesn't cut a release). Otherwise it computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag, builds with that version patched into the *workspace copy* of `AssemblyInfo.cs`/`source.extension.vsixmanifest` (never committed — see [Release process](#release-process)), groups the closed issues by label into Added/Fixed/Changed/Other (see [Issues, Milestones & Releases](CONTRIBUTING.md#issues-milestones--releases) in CONTRIBUTING.md), publishes a GitHub Release tagged `vX.Y.Z` with the built VSIX attached, and rotates `Unreleased` to `vX.Y.Z` (closed) plus a fresh `Unreleased`. Needs `permissions: contents: write` (create the release/tag) and `issues: write` (read issues, rename/close/create milestones) at the job level — the default `GITHUB_TOKEN` is read-only otherwise and these calls fail with a 403.
 
 Both workflows use `microsoft/setup-msbuild` to find the MSBuild bundled with the runner's Visual Studio 2022 — **do not** hardcode a path to SSMS's MSBuild in CI; SSMS is not installed on GitHub-hosted runners. That was tried and fails (`term not recognized`); only local dev machines that happen to have SSMS (and not full VS) need the SSMS MSBuild path + env var workaround described above.

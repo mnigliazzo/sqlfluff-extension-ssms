@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using SqlFluff.Ssms.Core;
+
+[assembly: InternalsVisibleTo("SqlFluff.Mcp.Tests")]
 
 namespace SqlFluff.Mcp
 {
@@ -24,6 +28,8 @@ namespace SqlFluff.Mcp
             [Description("Path or command name of the sqlfluff executable, if it isn't on this process's PATH (e.g. 'C:\\Python312\\Scripts\\sqlfluff.exe'). Defaults to 'sqlfluff'.")] string executablePath = null,
             CancellationToken cancellationToken = default)
         {
+            ValidateInputs(sql, filePath, workingDirectory, configFile);
+
             SqlFluffSettings settings = BuildSettings(dialect, filePath, workingDirectory, configFile, executablePath);
             string effectiveFilePath = ResolveFilePathHint(filePath, workingDirectory);
 
@@ -79,6 +85,8 @@ namespace SqlFluff.Mcp
             string sql, string dialect, string filePath, string workingDirectory, string configFile, string executablePath,
             CancellationToken ct)
         {
+            ValidateInputs(sql, filePath, workingDirectory, configFile);
+
             SqlFluffSettings settings = BuildSettings(dialect, filePath, workingDirectory, configFile, executablePath);
             string effectiveFilePath = ResolveFilePathHint(filePath, workingDirectory);
 
@@ -91,10 +99,38 @@ namespace SqlFluff.Mcp
             };
         }
 
+        // Throwing McpException (rather than a plain ArgumentException) is what makes the SDK
+        // surface this message to the caller - any other exception type gets replaced with a
+        // generic "An error occurred invoking '<tool>'." to avoid leaking internal details.
+        private static void ValidateInputs(string sql, string filePath, string workingDirectory, string configFile)
+        {
+            if (string.IsNullOrEmpty(sql))
+            {
+                throw new McpException("'sql' is required and cannot be empty.");
+            }
+
+            RequireAbsoluteIfGiven(filePath, nameof(filePath));
+            RequireAbsoluteIfGiven(workingDirectory, nameof(workingDirectory));
+            RequireAbsoluteIfGiven(configFile, nameof(configFile));
+        }
+
+        // filePath/workingDirectory/configFile drive .sqlfluff config discovery (see BuildSettings
+        // below); resolving a relative one against this server process's own working directory -
+        // which has no defined relationship to the caller's project - could silently discover the
+        // wrong .sqlfluff and diverge from what the same project's sqlfluff CLI/CI would report.
+        // Rejecting relative paths outright is safer than guessing.
+        private static void RequireAbsoluteIfGiven(string path, string paramName)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && !Path.IsPathRooted(path))
+            {
+                throw new McpException("'" + paramName + "' must be an absolute path, got: " + path);
+            }
+        }
+
         // Mirrors LintService.ResolveEffectiveSettings: a .sqlfluff discovered from filePath's or
         // workingDirectory's directory always wins over the explicit configFile fallback, per
         // SqlFluffConfigResolver's documented precedence.
-        private static SqlFluffSettings BuildSettings(
+        internal static SqlFluffSettings BuildSettings(
             string dialect, string filePath, string workingDirectory, string configFile, string executablePath)
         {
             return new SqlFluffSettings
@@ -110,7 +146,7 @@ namespace SqlFluff.Mcp
         // for .sqlfluffignore/.sqlfluff discovery. If the caller only gave a project root (the
         // common case for AI-generated SQL that isn't saved anywhere yet), synthesize a
         // placeholder path under it so that directory is still what gets used.
-        private static string ResolveFilePathHint(string filePath, string workingDirectory)
+        internal static string ResolveFilePathHint(string filePath, string workingDirectory)
         {
             if (!string.IsNullOrWhiteSpace(filePath))
             {
