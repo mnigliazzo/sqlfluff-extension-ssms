@@ -185,6 +185,71 @@ namespace SqlFluff.Ssms.Core
             }
         }
 
+        // Runs `sqlfluff --help` and returns its stdout - used by SQLFluff Documentation so the
+        // top-level CLI reference is available offline, without needing to reach docs.sqlfluff.com
+        // (which is still linked alongside it for the fuller rule/dialect/config reference that
+        // --help doesn't cover). Throws SqlFluffException on any failure, same convention as
+        // Lint/Fix/FormatAsync above, rather than returning an availability-style result: unlike
+        // CheckAvailabilityAsync this isn't a background probe, it's a one-shot user-requested
+        // action where a thrown exception is exactly what the caller wants to catch and report.
+        public static async Task<string> GetHelpAsync(SqlFluffSettings settings, CancellationToken ct)
+        {
+            Launch launch = Resolve(settings);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = launch.FileName,
+                Arguments = (string.IsNullOrEmpty(launch.PrefixArguments) ? string.Empty : launch.PrefixArguments + " ") + "--help",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+            };
+
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token))
+            using (var process = new Process { StartInfo = psi })
+            {
+                try
+                {
+                    process.Start();
+                }
+                catch (System.ComponentModel.Win32Exception ex)
+                {
+                    ResetCache();
+                    throw new SqlFluffException("Could not start SQLFluff (" + launch.FileName + "): " + ex.Message);
+                }
+
+                process.StandardInput.Close();
+
+                using (linked.Token.Register(() => TryKill(process)))
+                {
+                    Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    string stdout = await stdoutTask.ConfigureAwait(false);
+                    await Task.Run(() => process.WaitForExit()).ConfigureAwait(false);
+
+                    if (ct.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException(ct);
+                    }
+
+                    if (timeout.IsCancellationRequested)
+                    {
+                        throw new SqlFluffException("'sqlfluff --help' timed out.");
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        throw new SqlFluffException(Describe(new ProcessResult { ExitCode = process.ExitCode, StdOut = stdout, StdErr = stderr }));
+                    }
+
+                    return stdout;
+                }
+            }
+        }
+
         private static async Task<ProcessResult> RunAsync(
             string verb, string text, string filePath, SqlFluffSettings settings, CancellationToken ct)
         {

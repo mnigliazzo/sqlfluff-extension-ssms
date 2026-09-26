@@ -71,7 +71,15 @@ namespace SqlFluff.Ssms.Editor
             // --rules — only the blanket Fix/Format actions apply to those.
             if (!match.Violation.IsParseError)
             {
-                actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code, match.Violation.StartLine));
+                // Some rules (e.g. AM04 "ambiguous column count") have no autofix at all - offering
+                // "Fix this issue" for one would just be a silent no-op (sqlfluff exits reporting
+                // "Unfixable violations detected" with the document unchanged). Suppressing it here
+                // is still available regardless.
+                if (match.Violation.IsFixable)
+                {
+                    actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code, match.Violation.StartLine));
+                }
+
                 actions.Add(new SqlFluffNoqaAction(_view, _buffer, matchSnapshot, match.Span, match.Violation.Code));
             }
 

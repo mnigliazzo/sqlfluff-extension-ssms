@@ -25,5 +25,7 @@ namespace SqlFluff.Ssms
         public const int CmdFormatFolder = 0x0107;
         public const int CmdCheckForUpdates = 0x0108;
         public const int CmdInstallSqlFluffTool = 0x0109;
+        public const int CmdHelp = 0x010A;
+        public const int CmdSqlFluffHelp = 0x010B;
     }
 }

@@ -61,9 +61,19 @@ namespace SqlFluff.Ssms.Options
         public bool AutoSaveAfterFix { get; set; } = false;
 
         [Category(TriggersCategory)]
+        [DisplayName("Lint on open")]
+        [Description("Lint a SQL document the first time it is shown, so you see existing issues without having to type, save, or wait first - matching how linters in other IDEs (e.g. ESLint in VS Code) behave on file open.")]
+        public bool LintOnOpen { get; set; } = true;
+
+        [Category(TriggersCategory)]
         [DisplayName("Lint on save")]
         [Description("Lint a SQL document every time it is saved.")]
         public bool LintOnSave { get; set; } = true;
+
+        [Category(TriggersCategory)]
+        [DisplayName("Format on open")]
+        [Description("Run Format (the safe, stable rule subset) on a SQL document the first time it is shown, before you've touched it. Off by default - unlike Lint on open, this rewrites the buffer (marking it dirty) as soon as the file opens, with no explicit action from you.")]
+        public bool FormatOnOpen { get; set; } = false;
 
         [Category(TriggersCategory)]
         [DisplayName("Format on save")]
@@ -71,9 +81,14 @@ namespace SqlFluff.Ssms.Options
         public bool FormatOnSave { get; set; } = false;
 
         [Category(TriggersCategory)]
+        [DisplayName("Fix on save")]
+        [Description("Run Fix (ALL fixable rules, not just the safe subset) on a SQL document before it is saved - like VS Code/ESLint's 'fix all on save'. Caution: unlike Format, Fix can rewrite structure, not just style, on every save with no per-change review - review the diff with Fix/Undo manually first before enabling this. If both are on, Fix on save wins for that save. Off by default. If fixing itself fails/errors, the save proceeds with the document unchanged - but a Fix that runs successfully is applied and saved as-is, unreviewed.")]
+        public bool FixOnSave { get; set; } = false;
+
+        [Category(TriggersCategory)]
         [DisplayName("Lint while typing")]
-        [Description("Lint automatically after you stop typing. SQLFluff can be slow on large scripts, so this is off by default.")]
-        public bool LintOnType { get; set; } = false;
+        [Description("Lint automatically after you stop typing. SQLFluff can be slow on large scripts - turn this off if it becomes disruptive.")]
+        public bool LintOnType { get; set; } = true;
 
         [Category(TriggersCategory)]
         [DisplayName("Typing delay (ms)")]
@@ -97,10 +112,12 @@ namespace SqlFluff.Ssms.Options
 
         // Not user-facing. The SQLFluff toolbar's `DefaultDocked` CommandFlag (SqlFluffPackage.vsct)
         // doesn't reliably make SSMS 22 show it on its own — see SqlFluffPackage.EnsureToolbarVisibleOnce,
-        // which forces it visible via DTE.CommandBars exactly once and flips this so a user who later
-        // hides it isn't fought on every startup.
+        // which forces it visible via DTE.CommandBars once per extension version and records the
+        // version here (rather than a plain bool) so a user who later hides it isn't fought on every
+        // startup, but each new release — which may add buttons to the toolbar, as #42 itself did —
+        // still gets one fresh chance to surface it.
         [Browsable(false)]
-        public bool ToolbarShownOnce { get; set; } = false;
+        public string ToolbarShownForVersion { get; set; } = string.Empty;
 
         public override void SaveSettingsToStorage()
         {
@@ -118,12 +135,15 @@ namespace SqlFluff.Ssms.Options
                 Rules = Rules,
                 ExcludeRules = ExcludeRules,
                 TimeoutSeconds = TimeoutSeconds,
+                LintOnOpen = LintOnOpen,
                 LintOnSave = LintOnSave,
                 LintOnType = LintOnType,
                 TypeDelayMs = System.Math.Max(300, TypeDelayMs),
                 Severity = (DiagnosticSeverity)(int)Severity,
                 AutoSaveAfterFix = AutoSaveAfterFix,
+                FormatOnOpen = FormatOnOpen,
                 FormatOnSave = FormatOnSave,
+                FixOnSave = FixOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
                 CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
             };

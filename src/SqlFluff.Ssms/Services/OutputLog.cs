@@ -19,6 +19,16 @@ namespace SqlFluff.Ssms.Services
             });
         }
 
+        // Brings the Output window's SQLFluff pane to the front (and shows the Output window
+        // itself if it was closed) - used after writing something the user explicitly asked to
+        // see (e.g. SQLFluff Documentation's `sqlfluff --help` dump), as opposed to Write's normal
+        // silent logging that a user has to go looking for.
+        public static void Show()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            GetPane()?.Activate();
+        }
+
         public static void SetStatus(string text)
         {
             ThreadHelper.ThrowIfNotOnUIThread();

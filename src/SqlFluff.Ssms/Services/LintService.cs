@@ -258,8 +258,35 @@ namespace SqlFluff.Ssms.Services
         // document (no selection concept applies to a save). Never throws: a formatting failure
         // must not block or corrupt the save, so callers get a bool and the buffer is left as-is
         // on failure.
-        public async Task<bool> FormatForSaveAsync(ITextBuffer buffer, string path)
+        public Task<bool> FormatForSaveAsync(ITextBuffer buffer, string path)
         {
+            return RewriteBufferSyncAsync(buffer, path, useFix: false, trigger: "save");
+        }
+
+        // Same shape as FormatForSaveAsync, but running Fix (all fixable rules, not just the safe
+        // subset) instead of Format - mirrors VS Code/ESLint's "fix all on save" (editor.
+        // codeActionsOnSave / source.fixAll.eslint). Deliberately a save-time trigger and not an
+        // open-time one: VS Code has no "fix on open" equivalent either, and running the more
+        // aggressive Fix the instant a file is opened - before the user has done anything - is
+        // exactly the kind of surprise rewrite this extension avoids by design.
+        public Task<bool> FixForSaveAsync(ITextBuffer buffer, string path)
+        {
+            return RewriteBufferSyncAsync(buffer, path, useFix: true, trigger: "save");
+        }
+
+        // Same rewrite as FormatForSaveAsync, but for the "Format on open" trigger (DocumentEvents.
+        // Attach) instead of a save - there's no follow-up save event to trigger a re-lint here, so
+        // this does that itself once the rewrite (or no-op) is settled.
+        public async Task FormatOnOpenAsync(ITextBuffer buffer, string path)
+        {
+            await RewriteBufferSyncAsync(buffer, path, useFix: false, trigger: "open");
+            await LintAsync(buffer, path, userInitiated: false);
+        }
+
+        private async Task<bool> RewriteBufferSyncAsync(ITextBuffer buffer, string path, bool useFix, string trigger)
+        {
+            string verb = useFix ? "fix" : "format";
+            string gerund = useFix ? "fixing" : "formatting";
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             if (!buffer.CheckEditAccess())
@@ -276,14 +303,16 @@ namespace SqlFluff.Ssms.Services
                 return true;
             }
 
-            string formatted;
+            string rewritten;
             try
             {
-                formatted = await Task.Run(() => SqlFluffRunner.FormatAsync(original, path, settings, CancellationToken.None));
+                rewritten = useFix
+                    ? await Task.Run(() => SqlFluffRunner.FixAsync(original, path, settings, CancellationToken.None))
+                    : await Task.Run(() => SqlFluffRunner.FormatAsync(original, path, settings, CancellationToken.None));
             }
             catch (SqlFluffException ex)
             {
-                OutputLog.Write("Format on save failed: " + ex.Message);
+                OutputLog.Write(verb + " on " + trigger + " failed: " + ex.Message);
                 return false;
             }
 
@@ -291,12 +320,12 @@ namespace SqlFluff.Ssms.Services
 
             if (buffer.CurrentSnapshot.Version.VersionNumber != snapshot.Version.VersionNumber)
             {
-                OutputLog.Write("Format on save skipped: the document changed while formatting was running.");
+                OutputLog.Write(verb + " on " + trigger + " skipped: the document changed while " + gerund + " was running.");
                 return false;
             }
 
             string newline = DominantNewline(snapshot);
-            formatted = formatted.Replace("\r\n", "\n").Replace("\n", newline);
+            string formatted = rewritten.Replace("\r\n", "\n").Replace("\n", newline);
 
             if (string.Equals(formatted, original, StringComparison.Ordinal))
             {

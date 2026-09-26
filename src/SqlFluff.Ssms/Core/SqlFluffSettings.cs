@@ -15,12 +15,15 @@ namespace SqlFluff.Ssms.Core
         public string Rules { get; set; }
         public string ExcludeRules { get; set; }
         public int TimeoutSeconds { get; set; }
+        public bool LintOnOpen { get; set; }
         public bool LintOnSave { get; set; }
         public bool LintOnType { get; set; }
         public int TypeDelayMs { get; set; }
         public DiagnosticSeverity Severity { get; set; }
         public bool AutoSaveAfterFix { get; set; }
+        public bool FormatOnOpen { get; set; }
         public bool FormatOnSave { get; set; }
+        public bool FixOnSave { get; set; }
         public bool CheckForUpdatesOnStartup { get; set; }
         public bool CheckSqlFluffToolOnStartup { get; set; }
 
@@ -34,12 +37,15 @@ namespace SqlFluff.Ssms.Core
                 Rules = Rules,
                 ExcludeRules = ExcludeRules,
                 TimeoutSeconds = TimeoutSeconds,
+                LintOnOpen = LintOnOpen,
                 LintOnSave = LintOnSave,
                 LintOnType = LintOnType,
                 TypeDelayMs = TypeDelayMs,
                 Severity = Severity,
                 AutoSaveAfterFix = AutoSaveAfterFix,
+                FormatOnOpen = FormatOnOpen,
                 FormatOnSave = FormatOnSave,
+                FixOnSave = FixOnSave,
                 CheckForUpdatesOnStartup = CheckForUpdatesOnStartup,
                 CheckSqlFluffToolOnStartup = CheckSqlFluffToolOnStartup,
             };

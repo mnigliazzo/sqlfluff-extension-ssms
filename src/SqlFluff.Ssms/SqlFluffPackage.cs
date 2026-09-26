@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Design;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -80,6 +81,8 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdCheckForUpdates, (s, e) => CheckForUpdates(userInitiated: true), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdInstallSqlFluffTool, (s, e) => CheckSqlFluffTool(userInitiated: true), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdHelp, (s, e) => OpenHelp(), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdSqlFluffHelp, (s, e) => OpenSqlFluffHelp(), requiresSql: false);
                 AddFolderCommand(commands, PackageIds.CmdLintFolder, FolderBatchAction.Lint);
                 AddFolderCommand(commands, PackageIds.CmdFixFolder, FolderBatchAction.Fix);
                 AddFolderCommand(commands, PackageIds.CmdFormatFolder, FolderBatchAction.Format);
@@ -120,12 +123,17 @@ namespace SqlFluff.Ssms
         // it automatically the first time the package loads, but SSMS 22 doesn't reliably honor that
         // (issue #27 found the same kind of gap for the query editor's context menu - SSMS 22 doesn't
         // always behave like a plain VS shell for command UI). Force it visible via DTE.CommandBars
-        // once, then leave the user's own show/hide choice alone from then on.
+        // once per extension version, then leave the user's own show/hide choice alone until the next
+        // version - gating on the version rather than a plain "ever shown" bool means a user who hid
+        // it deliberately isn't fought every startup, but a release that changes the toolbar (#42
+        // itself added a second button group to it) still gets one fresh chance to surface it instead
+        // of stopping forever after whichever version first showed it.
         private void EnsureToolbarVisibleOnce()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
-            if (page.ToolbarShownOnce)
+            string currentVersion = GetType().Assembly.GetName().Version.ToString(3);
+            if (page.ToolbarShownForVersion == currentVersion)
             {
                 return;
             }
@@ -144,14 +152,14 @@ namespace SqlFluff.Ssms
             }
             catch (Exception ex)
             {
-                // Only mark it "handled" once the user has actually had a chance to see the
+                // Only record it "handled" once the user has actually had a chance to see the
                 // toolbar - if showing it failed, keep retrying on future startups rather than
                 // silently giving up with nothing but a buried Output pane line.
                 OutputLog.Write("SQLFluff: couldn't show the toolbar automatically - enable it manually via right-click on any toolbar > SQLFluff. (" + ex.Message + ")");
                 return;
             }
 
-            page.ToolbarShownOnce = true;
+            page.ToolbarShownForVersion = currentVersion;
             page.SaveSettingsToStorage();
         }
 
@@ -354,6 +362,71 @@ namespace SqlFluff.Ssms
             {
                 OutputLog.Write(verify.Error);
                 OutputLog.SetStatus("SQLFluff: pip reported success, but SQLFluff still isn't reachable - see the SQLFluff output pane, or set its path in Tools > Options > SQLFluff.");
+            }
+        }
+
+        // Same repo as ExtensionUpdater's release-check URL, just the human-facing README instead
+        // of the GitHub API - Options' per-setting Description text covers the how, this is the
+        // one place pointing at the why/architecture (dialects, .sqlfluff discovery, CI parity,
+        // etc.) that doesn't fit in a DialogPage tooltip.
+        private const string DocumentationUrl = "https://github.com/mnigliazzo/sqlfluff-extension-ssms#readme";
+
+        // The sqlfluff tool's own docs (rules, dialects, .sqlfluff format, CLI) - distinct from
+        // DocumentationUrl above, which covers this *extension* (installation, Options, triggers).
+        // Neither one substitutes for the other: this extension's README doesn't re-document every
+        // sqlfluff rule, and sqlfluff's docs don't know this extension exists.
+        private const string SqlFluffDocumentationUrl = "https://docs.sqlfluff.com/en/stable/";
+
+        private void OpenHelp()
+        {
+            OpenUrl(DocumentationUrl);
+        }
+
+        // Runs 'sqlfluff --help' locally (no internet needed) and dumps it to the Output pane,
+        // followed by a link to docs.sqlfluff.com for the fuller reference --help doesn't cover
+        // (rules, dialects, .sqlfluff config format) - so this one command surfaces both the
+        // offline quick-reference and the online deep-reference together.
+        private void OpenSqlFluffHelp()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            JoinableTaskFactory.RunAsync(async () =>
+            {
+                SqlFluffSettings settings = GetSettings();
+                OutputLog.SetStatus("SQLFluff: getting 'sqlfluff --help'...");
+
+                try
+                {
+                    string help = await Task.Run(() => SqlFluffRunner.GetHelpAsync(settings, CancellationToken.None));
+
+                    await JoinableTaskFactory.SwitchToMainThreadAsync();
+                    OutputLog.Write(
+                        "sqlfluff --help:" + Environment.NewLine + help.TrimEnd() + Environment.NewLine +
+                        "Full documentation (rules, dialects, .sqlfluff config): " + SqlFluffDocumentationUrl);
+                    OutputLog.Show();
+                    OutputLog.SetStatus("SQLFluff: see the SQLFluff output pane for 'sqlfluff --help'.");
+                }
+                catch (SqlFluffException ex)
+                {
+                    await JoinableTaskFactory.SwitchToMainThreadAsync();
+                    OutputLog.Write("Could not run 'sqlfluff --help': " + ex.Message);
+                    OutputLog.SetStatus(
+                        "SQLFluff: could not run 'sqlfluff --help' - see the SQLFluff output pane, or open " +
+                        SqlFluffDocumentationUrl + " instead.");
+                }
+            }).Task.FileAndForget("sqlfluff/sqlfluff-help");
+        }
+
+        private void OpenUrl(string url)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                OutputLog.Write("Could not open " + url + ": " + ex.Message);
+                OutputLog.SetStatus("SQLFluff: could not open the documentation link - see the SQLFluff output pane for the URL.");
             }
         }
 

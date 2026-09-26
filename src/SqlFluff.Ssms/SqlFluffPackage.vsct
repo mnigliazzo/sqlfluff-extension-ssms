@@ -143,6 +143,26 @@
           <ToolTipText>Check whether the sqlfluff Python tool is installed and up to date, and install/upgrade it via pip if needed</ToolTipText>
         </Strings>
       </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidHelp" priority="0x0103" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" />
+        <Icon guid="ImageCatalogGuid" id="StatusHelp" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>Extension &amp;Help / Documentation</ButtonText>
+          <ToolTipText>Open the SQLFluff for SSMS README on GitHub (installation, configuration, features)</ToolTipText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidSqlFluffCmdSet" id="cmdidSqlFluffHelp" priority="0x0104" type="Button">
+        <Parent guid="guidSqlFluffCmdSet" id="SubMenuOptionsGroup" />
+        <Icon guid="ImageCatalogGuid" id="StatusHelpOutline" />
+        <CommandFlag>IconIsMoniker</CommandFlag>
+        <Strings>
+          <ButtonText>SQL&amp;Fluff Documentation</ButtonText>
+          <ToolTipText>Show 'sqlfluff --help' in the SQLFluff output pane (no internet needed), plus a link to the full official docs.sqlfluff.com reference (rules, dialects, .sqlfluff config)</ToolTipText>
+        </Strings>
+      </Button>
     </Buttons>
 
   </Commands>
@@ -199,6 +219,8 @@
       <IDSymbol name="cmdidFormatFolder" value="0x0107" />
       <IDSymbol name="cmdidCheckForUpdates" value="0x0108" />
       <IDSymbol name="cmdidInstallSqlFluffTool" value="0x0109" />
+      <IDSymbol name="cmdidHelp" value="0x010A" />
+      <IDSymbol name="cmdidSqlFluffHelp" value="0x010B" />
     </GuidSymbol>
   </Symbols>
 
