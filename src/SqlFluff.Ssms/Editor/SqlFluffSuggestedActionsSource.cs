@@ -68,7 +68,8 @@ namespace SqlFluff.Ssms.Editor
             var actions = new List<ISuggestedAction>();
 
             // Parse errors (PRS/LXR/TMP) aren't sqlfluff rule codes, so they can't be targeted via
-            // --rules — only the blanket Fix/Format actions apply to those.
+            // --rules — the per-rule "Fix this issue" action doesn't apply to those, only the
+            // blanket Fix/Format actions below do.
             if (!match.Violation.IsParseError)
             {
                 // Some rules (e.g. AM04 "ambiguous column count") have no autofix at all - offering
@@ -79,9 +80,15 @@ namespace SqlFluff.Ssms.Editor
                 {
                     actions.Add(new SqlFluffFixAction(_view, _buffer, match.Violation.Code, match.Violation.StartLine));
                 }
-
-                actions.Add(new SqlFluffNoqaAction(_view, _buffer, matchSnapshot, match.Span, match.Violation.Code));
             }
+
+            // Unlike the per-rule Fix action above, `-- noqa: <code>` is a plain inline comment, not
+            // a --rules CLI target, and sqlfluff honors it for PRS/LXR/TMP codes the same as any
+            // rule code — confirmed against sqlfluff directly. This is the only way to silence a
+            // parse-error violation from the editor; it does not make the rest of the file parseable
+            // again (sqlfluff still can't lint content it swallowed into the same unparsable span),
+            // but it's the only escape hatch when the underlying dialect gap can't be worked around.
+            actions.Add(new SqlFluffNoqaAction(_view, _buffer, matchSnapshot, match.Span, match.Violation.Code));
 
             actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: false));
             actions.Add(new SqlFluffFixAction(_view, _buffer, isFormat: true));
