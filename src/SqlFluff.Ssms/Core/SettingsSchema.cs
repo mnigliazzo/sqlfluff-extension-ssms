@@ -61,7 +61,6 @@ namespace SqlFluff.Ssms.Core
             new SettingDefinition("sqlfluff.display.reportViolationsAs", "Severity", SettingKind.Severity, "warning", (s, v) => s.Severity = ParseSeverity((string)v)),
             new SettingDefinition("sqlfluff.updates.checkForUpdatesOnStartup", "CheckForUpdatesOnStartup", SettingKind.Boolean, true, (s, v) => s.CheckForUpdatesOnStartup = (bool)v),
             new SettingDefinition("sqlfluff.updates.checkSqlFluffToolOnStartup", "CheckSqlFluffToolOnStartup", SettingKind.Boolean, true, (s, v) => s.CheckSqlFluffToolOnStartup = (bool)v),
-            new SettingDefinition("sqlfluff.updates.checkMcpServerOnStartup", "CheckMcpServerOnStartup", SettingKind.Boolean, true, (s, v) => s.CheckMcpServerOnStartup = (bool)v),
         };
 
         // read returns the stored value for a definition (already of the definition's CLR type),

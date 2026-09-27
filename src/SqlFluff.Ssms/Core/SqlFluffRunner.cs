@@ -492,9 +492,8 @@ namespace SqlFluff.Ssms.Core
         }
 
         // Internal (not private): reused by SqlFluffInstaller to locate 'py'/'python' for pip,
-        // independent of sqlfluff's own executable resolution above. Also linked into
-        // SqlFluff.Mcp, a plain cross-platform net8.0 console app - unlike the VSIX (Windows-only,
-        // since SSMS is Windows-only). On Windows, executables always carry one of these three
+        // independent of sqlfluff's own executable resolution above. Also runs on non-Windows
+        // (the net8.0 unit tests run on Linux in CI). On Windows, executables always carry one of these three
         // extensions, so the search stays exactly as it was there (no bare-name check, which could
         // otherwise match an unrelated extensionless file - e.g. a stray script or a WSL/Git-Bash
         // shim - ahead of the real .exe sitting in a later PATH directory). On any other OS, a

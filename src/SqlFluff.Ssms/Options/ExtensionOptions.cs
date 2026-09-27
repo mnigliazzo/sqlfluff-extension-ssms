@@ -62,13 +62,6 @@ namespace SqlFluff.Ssms.Options
             return options;
         }
 
-        // Not user-facing: see SqlFluffPackage.CheckMcpServerAsync.
-        public string McpServerOfferedForVersion
-        {
-            get => GetState(nameof(McpServerOfferedForVersion));
-            set => SetState(nameof(McpServerOfferedForVersion), value);
-        }
-
         public SqlFluffSettings Read()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -202,13 +195,6 @@ namespace SqlFluff.Ssms.Options
                 }
 
                 OutputLog.Write("Migrated " + queued + " option(s) from the previous options page.");
-            }
-
-            // Carry over "MCP setup already offered for vX" so upgrading doesn't re-prompt.
-            const string mcpOffered = nameof(McpServerOfferedForVersion);
-            if (!_store.PropertyExists(StateCollection, mcpOffered) && _store.PropertyExists(LegacyCollection, mcpOffered))
-            {
-                SetState(mcpOffered, _store.GetString(LegacyCollection, mcpOffered));
             }
 
             EnsureStateCollection();

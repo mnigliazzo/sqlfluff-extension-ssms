@@ -8,11 +8,9 @@ A VSIX extension (in-proc VSSDK package, targeting `net48`) that integrates [SQL
 
 SQLFluff itself is never bundled — it's a separate Python tool the user installs (`pip install sqlfluff`) and the extension shells out to.
 
-There's also a second, standalone project, `src/SqlFluff.Mcp` — an MCP (Model Context Protocol) server exposed over stdio that gives an AI coding assistant (e.g. Copilot in SSMS/VS) access to the same lint/fix/format pipeline, so AI-generated SQL can be run through it too. See [its own README](src/SqlFluff.Mcp/README.md) and [Architecture](#architecture) below — it doesn't require the VSIX, doesn't touch SSMS or an open editor, and shares no code path with it beyond the reused `Core/` files.
-
 ## Build commands
 
-Two projects. `src/SqlFluff.Ssms/SqlFluff.Ssms.csproj` is the VSIX; `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj` is the standalone MCP server.
+`src/SqlFluff.Ssms/SqlFluff.Ssms.csproj` is the VSIX.
 
 **Local development** (this repo was authored on a machine with SSMS 22 but no full Visual Studio, so local builds use SSMS's own bundled MSBuild):
 
@@ -31,14 +29,6 @@ Output: `src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.vsix` (plus the loose `.dll
 
 **Always do a clean rebuild before treating a `.vsix` as release-ready** (`Remove-Item bin,obj -Recurse -Force` first). An incremental build has been observed to repackage a stale `extension.vsixmanifest` (wrong version number) even after the source manifest was edited.
 
-`SqlFluff.Mcp` is a plain `net8.0` console app — no VSSDK, no SSMS/VS MSBuild needed:
-
-```powershell
-dotnet build src\SqlFluff.Mcp\SqlFluff.Mcp.csproj --configuration Release
-```
-
-Output: `src\SqlFluff.Mcp\bin\Release\net8.0\SqlFluff.Mcp.dll`.
-
 ## Tests
 
 `tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj` is a separate, plain `net8.0` xUnit project — no VS SDK, no VSSDK.BuildTools, no SSMS/Visual Studio MSBuild needed:
@@ -51,20 +41,12 @@ It only covers the pure logic that can be extracted without touching `Process`/V
 
 **When adding new pure logic to `Core/`** (parsing, string manipulation, anything that doesn't touch `ITextBuffer`/`Process`/VS SDK types), prefer putting it in its own file so it can be linked into the test project the same way, and add tests for it. Logic that inherently needs the VS SDK (editor services, tagging, commands) has no test coverage and isn't expected to — there's no reasonable way to unit test that without a running SSMS/VS host.
 
-`tests/SqlFluff.Mcp.Tests/SqlFluff.Mcp.Tests.csproj` covers `SqlFluff.Mcp`'s own pure logic (`SqlFluffTools.BuildSettings`/`ResolveFilePathHint`, `internal` + `[assembly: InternalsVisibleTo("SqlFluff.Mcp.Tests")]`):
-
-```bash
-dotnet test tests/SqlFluff.Mcp.Tests/SqlFluff.Mcp.Tests.csproj
-```
-
-Unlike `SqlFluff.Ssms.Tests`, this one uses a normal `ProjectReference` to `src/SqlFluff.Mcp/SqlFluff.Mcp.csproj` instead of linked `<Compile Include>` — `SqlFluff.Mcp` is already a plain `net8.0` console app with no VSSDK dependency of its own, so a `ProjectReference` doesn't drag in anything SSMS/VS-MSBuild-specific.
-
 ## CI/CD
 
 Four GitHub Actions workflows:
 
 - **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main` and `beta`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
-- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main` and `beta`. `dotnet test` on both net8.0 test projects (`SqlFluff.Ssms.Tests`, `SqlFluff.Mcp.Tests`) — the latter also builds `SqlFluff.Mcp` itself via its `ProjectReference`, so there's no separate build check for it. No MSBuild/SSMS setup needed for either. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
+- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main` and `beta`. `dotnet test` on the net8.0 test project (`SqlFluff.Ssms.Tests`). No MSBuild/SSMS setup needed.
 - **`.github/workflows/release.yml`** (`windows-latest`) — runs on push to `main` (and manually via `workflow_dispatch`, with a `bump` input to force `patch`/`minor`/`major`). Looks up the `Unreleased` milestone; if it has no closed issues, the run is a no-op (a push with nothing user-facing just doesn't cut a release). Otherwise it computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag, builds with that version patched into the *workspace copy* of `AssemblyInfo.cs`/`source.extension.vsixmanifest` (never committed — see [Release process](#release-process)), groups the closed issues by label into Added/Fixed/Changed/Other (see [Issues, Milestones & Releases](CONTRIBUTING.md#issues-milestones--releases) in CONTRIBUTING.md), publishes a GitHub Release tagged `vX.Y.Z` with the built VSIX attached, and rotates `Unreleased` to `vX.Y.Z` (closed) plus a fresh `Unreleased`. Needs `permissions: contents: write` (create the release/tag) and `issues: write` (read issues, rename/close/create milestones) at the job level — the default `GITHUB_TOKEN` is read-only otherwise and these calls fail with a 403.
 - **`.github/workflows/beta-release.yml`** (`windows-latest`) — runs on push to `beta` touching `src/**` (and manually). Publishes a GitHub **prerelease**; see [Beta channel](#beta-channel).
 
@@ -142,7 +124,7 @@ The extension itself (not SQLFluff) can update in-place from SSMS, since it has 
 
 ### Notifications and prompts
 
-Anything the user didn't ask for — the startup checks' "SQLFluff tool not found", "tool update available" and "set up the MCP server?" — goes through `Services/InfoBarService.cs`: a non-blocking info bar in the main window (`IVsInfoBarUIFactory`), the Visual Studio pattern for unsolicited notifications. Modal message boxes are only used to confirm an action the user explicitly invoked (e.g. SQLFluff > Install/Update SQLFluff Tool..., Check for Updates..., the folder-wide commands).
+Anything the user didn't ask for — the startup checks' "SQLFluff tool not found" and "tool update available" — goes through `Services/InfoBarService.cs`: a non-blocking info bar in the main window (`IVsInfoBarUIFactory`), the Visual Studio pattern for unsolicited notifications. Modal message boxes are only used to confirm an action the user explicitly invoked (e.g. SQLFluff > Install/Update SQLFluff Tool..., Check for Updates..., the folder-wide commands).
 
 ### Menus and toolbar
 
@@ -155,7 +137,6 @@ Commands, menus and the SQLFluff toolbar are declared in `SqlFluffPackage.vsct`.
 - **Where options live:** Unified Settings (Tools > Options > SQLFluff), not a `DialogPage`. `Options/registration.json` declares them, and `[ProvideSettingsManifest]` registers it. `Core/SettingsSchema.cs` is the pure description of every option: moniker, the legacy `DialogPage` property name, type, default, and how it maps onto `SqlFluffSettings`. `SettingsSchemaTests` fails if it drifts from `registration.json`.
 - **How they're read:** `Options/ExtensionOptions.cs` gets Unified Settings' `ISettingsManager` directly from the `SVsUnifiedSettingsManager` service. That service is documented, but its type lives in an internal interop assembly, so it's re-declared by GUID. Asking for it directly, instead of via a `[ProvideSettingsObserver]` observer, keeps reads synchronous from the first line of `InitializeAsync` — "Lint on open" runs for restored tabs during package load.
 - **Upgrading from the `DialogPage` era:** the first run copies non-default values from the old storage (`DialogPage\SqlFluff.Ssms.Options.SqlFluffOptionsPage` in the user settings store, every value an invariant string) over once, in code (`MigrateLegacyOnce`), not via registration.json's `migration` blocks, which SSMS only uses on registry values that aren't strings. After that the old storage is never read. If Unified Settings is unavailable or turned off ("classic mode"), the extension uses defaults and says so in the output pane; there is no legacy options page to fall back to.
-- **Internal bookkeeping:** `McpServerOfferedForVersion` isn't a user option. It lives in the user settings store under `SqlFluff.Ssms`, and the one-time migration carries over the value recorded by earlier versions.
 - **Opening the page:** there's no documented API to open a specific Unified Settings category, so SQLFluff > Options opens Tools > Options and tells the user to search for "SQLFluff".
 
 ### Editor/services split
@@ -163,17 +144,3 @@ Commands, menus and the SQLFluff toolbar are declared in `SqlFluffPackage.vsct`.
 - `Core/` — SQLFluff process execution and settings model; no VS editor types, could in principle be unit tested standalone (though nothing currently does).
 - `Editor/` — MEF-composed editor extensibility points (tagger, suggested actions, the violation store they both read).
 - `Services/` — package-owned, non-MEF services (`LintService` orchestration, RDT/document-lifecycle glue, Error List, output pane/status bar logging via `OutputLog`, and `EditorServices` for locating the active SQL view / resolving a buffer's file path).
-
-### `src/SqlFluff.Mcp` is a second front-end over the same `Core/`, not a reimplementation
-
-It's a plain `net8.0` console app that stands up an MCP server over stdio (official `ModelContextProtocol` SDK, `Microsoft.Extensions.Hosting`-based — see `Program.cs`), exposing three tools that map 1:1 onto `SqlFluffRunner.LintAsync`/`FixAsync`/`FormatAsync`: `sqlfluff_lint`, `sqlfluff_fix`, `sqlfluff_format` (`SqlFluffTools.cs`). It links the same `Core/*.cs` files the VSIX compiles (`<Compile Include>`, same pattern `tests/SqlFluff.Ssms.Tests` uses — not a `ProjectReference`, which would drag in `SqlFluff.Ssms.csproj`'s VSSDK targets) rather than duplicating any lint/fix/format/config-discovery logic. `SqlFluffTools`'s `BuildSettings` helper calls `SqlFluffConfigResolver.Resolve` itself, mirroring `LintService.ResolveEffectiveSettings`, so a tool call discovers the same `.sqlfluff` a human editing the same project in SSMS would — the `filePath`/`workingDirectory`/`configFile` tool parameters exist specifically so this doesn't silently diverge from the VSIX's behavior.
-
-It has no dependency on the VSIX or an open SSMS instance (an AI assistant hands it raw SQL text and gets back violations/rewritten SQL — it never touches an `ITextBuffer`). At the source/build level the VSIX has no dependency on it either — no `ProjectReference`, independently built/tested/versioned, `release.yml`'s `dotnet publish` step for it is a separate step from the VSIX's own MSBuild build — they're independent consumers of the same `Core/` logic. It's framework-dependent (`dotnet SqlFluff.Mcp.dll`), not a published `dotnet tool` — see its README for how an MCP client configures it, and stdout is reserved for the MCP protocol channel, so all logging in `Program.cs` is routed to stderr (`LogToStandardErrorThreshold`).
-
-#### The VSIX can set this up automatically at runtime
-
-`SqlFluffPackage`'s **SQLFluff > Set Up MCP Server for Copilot...** command (also offered once per release on startup, gated by the "Check MCP server on startup" option) downloads that same `SqlFluff.Mcp.zip` release asset and wires it up for GitHub Copilot — this is a *runtime* behavior layered on top of the two projects' independent builds, not a build-time coupling:
-
-- `Core/McpServerInstaller.cs` fetches the latest release's info (reusing `ExtensionUpdater.FetchLatestReleaseJsonAsync` + the `McpZipDownloadUrl` `UpdateInfoParser.Parse` now also extracts) and extracts the zip into `%LocalAppData%\SqlFluff.Ssms\Mcp` — deliberately *not* the VSIX's own install directory, which is version/instance-specific and changes on every update (including this extension's own self-update), which would silently break an `.mcp.json` entry pointing at it.
-- `Core/McpJsonMerger.cs` (pure, unit-tested) merges a `"sqlfluff"` entry into `%USERPROFILE%\.mcp.json` using `System.Text.Json.Nodes`, without disturbing any other servers or keys already there, and without ever overwriting an existing `"sqlfluff"` entry (it may have been hand-customized). `System.Text.Json` needs no new NuGet reference here — it's already part of `Microsoft.VisualStudio.SDK`'s own dependency closure (with `ExcludeAssets="runtime"`, so SSMS/VS supplies the actual runtime assembly rather than this VSIX bundling a possibly-conflicting copy), which is what avoids the version-clash risk a fresh JSON-library NuGet reference would otherwise carry in a VSIX.
-- `SqlFluffPackage.CheckMcpServerAsync` ties it together behind one prompt. It records `ExtensionOptions.McpServerOfferedForVersion` on decline, so declining once doesn't nag every startup — only a newer release gets a fresh offer.

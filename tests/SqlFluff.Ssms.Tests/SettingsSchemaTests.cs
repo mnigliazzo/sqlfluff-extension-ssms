@@ -86,7 +86,6 @@ namespace SqlFluff.Ssms.Tests
             Assert.Equal(DiagnosticSeverity.Warning, settings.Severity);
             Assert.True(settings.CheckForUpdatesOnStartup);
             Assert.True(settings.CheckSqlFluffToolOnStartup);
-            Assert.True(settings.CheckMcpServerOnStartup);
         }
 
         [Fact]
@@ -146,7 +145,7 @@ namespace SqlFluff.Ssms.Tests
                 "ExecutablePath", "Dialect", "ConfigFile", "Rules", "ExcludeRules", "TimeoutSeconds",
                 "AutoSaveAfterFix", "LintOnOpen", "LintOnSave", "FormatOnOpen", "FormatOnSave", "FixOnSave",
                 "LintOnType", "TypeDelayMs", "Severity", "CheckForUpdatesOnStartup",
-                "CheckSqlFluffToolOnStartup", "CheckMcpServerOnStartup",
+                "CheckSqlFluffToolOnStartup",
             };
 
             Assert.Equal(previous.OrderBy(n => n), SettingsSchema.All.Select(d => d.LegacyName).OrderBy(n => n));
