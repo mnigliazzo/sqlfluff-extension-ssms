@@ -145,16 +145,11 @@ Commands, menus and the SQLFluff toolbar are declared in `SqlFluffPackage.vsct`.
 - `Editor/` — MEF-composed editor extensibility points (tagger, suggested actions, the violation store they both read).
 - `Services/` — package-owned, non-MEF services (`LintService` orchestration, RDT/document-lifecycle glue, Error List, output pane/status bar logging via `OutputLog`, and `EditorServices` for locating the active SQL view / resolving a buffer's file path).
 
-### `src/SqlFluff.Ssms.NewModel` — new extensibility model preview (beta only)
+### Why VSSDK and not VisualStudio.Extensibility
 
-A separate, experimental extension on the pure out-of-process **VisualStudio.Extensibility** model (.NET 8, runs outside SSMS), shipped only in beta prereleases next to the regular VSIX. Its purpose is to find out whether SSMS 22 supports that model. It contributes:
+This is an in-process VSSDK extension on purpose. The newer out-of-process **VisualStudio.Extensibility** model can't be installed into SSMS. That was verified on SSMS 22.10 with a probe extension (PR #80, reverted) and by decompiling the Visual Studio Installer 4.9.50, which is what installs new-model extensions:
 
-- **A probe command**, Tools > SQLFluff: Test new extension model, declared in code with no `.vsct`.
-- **A Language Server** (`SqlFluffLanguageServerProvider` + a minimal in-process LSP server over an in-memory pipe) that lints `.sql` documents with the same linked `Core/` files and publishes LSP diagnostics. SSMS's own LSP client would then render squiggles/Error List entries, with no tagger or Error List code in the extension.
+- `ExtensionService.ProductSupportsExtension` checks the product against a hardcoded map, `ExtensionsHelper.productIdToTargetMapping`. It covers Community/Professional/Enterprise/SQL/TeamExplorer/WDExpress only, not `Microsoft.VisualStudio.Product.Ssms`.
+- So every such VSIX fails with `UnsupportedProduct` before its manifest's install targets are considered.
 
-Two things here aren't supported by Microsoft for SSMS, and the probe is what tests them:
-
-- `LanguageServerProvider` is a **preview API** in VisualStudio.Extensibility 17.14 (`VSEXTPREVIEW_LSP`, suppressed in the csproj to opt in).
-- `ExtensionMetadata` can't name the target product; the generated manifest always targets `Microsoft.VisualStudio.Community`. The csproj's `RetargetGeneratedManifestToSsms` target rewrites it to `Microsoft.VisualStudio.Ssms` `[22.0,)` before packaging.
-
-It builds with plain `dotnet build` (no Visual Studio/SSMS MSBuild needed). CI builds it in `build.yml`, and `beta-release.yml` attaches `SqlFluff.Ssms.NewModel.vsix` to each beta.
+The VSSDK-compatible in-process hybrid does install, but it's still VSSDK underneath and was rejected in favor of keeping one model. Re-check the installer's mapping before revisiting this.

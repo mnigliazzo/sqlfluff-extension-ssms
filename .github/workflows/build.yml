@@ -29,12 +29,6 @@ jobs:
       run: msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
       shell: pwsh
 
-    # Preview of the extension on the out-of-process VisualStudio.Extensibility model; a plain
-    # SDK-style net8.0 project, so dotnet build packages its VSIX without Visual Studio's MSBuild.
-    - name: Build new-model preview
-      run: dotnet build src/SqlFluff.Ssms.NewModel/SqlFluff.Ssms.NewModel.csproj -c Release
-      shell: pwsh
-
     - name: Check VSIX
       run: |
         $vsix = 'src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.vsix'
