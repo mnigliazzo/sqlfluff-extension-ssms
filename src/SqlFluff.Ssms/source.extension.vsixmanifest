@@ -8,7 +8,7 @@
     <PreviewImage>Resources\Icon.png</PreviewImage>
     <Tags>sql, sqlfluff, lint, format, tsql</Tags>
   </Metadata>
-  <Installation>
+  <Installation ExtensionType="VSSDK+VisualStudio.Extensibility">
     <InstallationTarget Id="Microsoft.VisualStudio.Ssms" Version="[22.0,)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
