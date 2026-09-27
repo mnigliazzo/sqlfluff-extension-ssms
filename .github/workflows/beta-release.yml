@@ -88,12 +88,6 @@ jobs:
         msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
       shell: pwsh
 
-    - name: Build new-model preview
-      run: |
-        $version = "${{ steps.version.outputs.version }}"
-        dotnet build src/SqlFluff.Ssms.NewModel/SqlFluff.Ssms.NewModel.csproj -c Release -p:AssemblyVersion=$version -p:FileVersion=$version
-      shell: pwsh
-
     - name: Create prerelease
       uses: softprops/action-gh-release@v3
       with:
@@ -110,11 +104,8 @@ jobs:
 
           **Go back to stable**: VSIXInstaller won't downgrade over a newer version, so uninstall the beta first (Extensions > Manage Extensions), then install the stable `.vsix` from the [latest release](https://github.com/${{ github.repository }}/releases/latest). Installing the next stable release directly over the beta works without uninstalling.
 
-          **New extension model preview (`SqlFluff.Ssms.NewModel.vsix`, optional)**: a separate extension built on Visual Studio's new out-of-process extensibility model, installable next to the regular one. It adds **Tools > SQLFluff: Test new extension model** and lints `.sql` files through a Language Server. It's here to find out whether SSMS 22 supports that model at all.
-
           Please report problems as GitHub issues and mention this beta version.
         files: |
           src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
-          src/SqlFluff.Ssms.NewModel/bin/Release/net8.0-windows8.0/SqlFluff.Ssms.NewModel.vsix
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
