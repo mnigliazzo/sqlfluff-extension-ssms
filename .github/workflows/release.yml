@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump (auto = based on labels of closed issues in the Unreleased milestone)'
+        description: 'Version bump (auto = based on labels of the issues closed by PRs merged since the last release)'
         required: false
         default: 'auto'
         type: choice
@@ -22,7 +22,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
-      issues: write
+      issues: read
+      pull-requests: read
 
     steps:
     - uses: actions/checkout@v7
@@ -32,47 +33,18 @@ jobs:
     # The version is never read from (or written back to) AssemblyInfo.cs/vsixmanifest in the
     # repo — main's branch protection blocks direct pushes even from the Actions bot, so a
     # workflow can't commit a version bump back to it without a human-reviewed PR. Instead, the
-    # version is computed here from the latest published release tag plus the labels of whatever
-    # issues are closed in the "Unreleased" milestone, and only ever exists as a git tag / GitHub
-    # Release — never depends on a maintainer remembering to bump a file by hand.
+    # version is computed here from the latest published release tag plus the labels of the
+    # issues that PRs merged into main since then actually closed (GitHub's own "Closes #N"
+    # link — see docs/WORKFLOW.md), and only ever exists as a git tag / GitHub Release. There is
+    # no milestone to assign issues to and nothing to rotate after a release: this is deliberately
+    # simpler than that earlier design (see docs/RELEASE.md for why it was dropped).
     - name: Determine version and release notes
       id: version
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        $repo = "${{ github.repository }}"
-
-        $milestones = gh api "repos/$repo/milestones?state=all" | ConvertFrom-Json
-        $milestone = $milestones | Where-Object { $_.title -eq "Unreleased" } | Select-Object -First 1
-
-        $realIssues = @()
-        if ($milestone) {
-          $issues = gh api "repos/$repo/issues?milestone=$($milestone.number)&state=closed&per_page=100" | ConvertFrom-Json
-          $realIssues = @($issues | Where-Object { -not $_.pull_request })
-        } else {
-          Write-Warning "No 'Unreleased' milestone found."
-        }
-
-        $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
-        $hasWork = $realIssues.Count -gt 0
-
-        if (-not $hasWork -and -not $isManual) {
-          Write-Output "Nothing closed in the Unreleased milestone; nothing to release."
-          Write-Output "hasWork=false" >> $env:GITHUB_OUTPUT
-          exit 0
-        }
-
-        # Bump type: an explicit workflow_dispatch input wins; otherwise "enhancement" on any
-        # closed issue means minor, anything else (bug/chore/documentation/none) means patch.
-        # There's no automatic "major" signal (no "breaking" label convention yet) — force it via
-        # the workflow_dispatch input when one is actually needed.
-        $bumpInput = "${{ github.event.inputs.bump }}"
-        if ([string]::IsNullOrEmpty($bumpInput) -or $bumpInput -eq "auto") {
-          $labelNames = @($realIssues | ForEach-Object { $_.labels } | ForEach-Object { $_.name })
-          $bumpType = if ($labelNames -contains "enhancement") { "minor" } else { "patch" }
-        } else {
-          $bumpType = $bumpInput
-        }
+        $repoFull = "${{ github.repository }}"
+        $owner, $name = $repoFull.Split('/', 2)
 
         git fetch --tags --quiet
         $tagVersions = git tag --list "v*" |
@@ -81,6 +53,82 @@ jobs:
           ForEach-Object { [version]$_ } |
           Sort-Object -Descending
         $current = if ($tagVersions) { $tagVersions[0] } else { [version]"0.0.0" }
+
+        # Everything merged after the previous tag's commit date counts as "in this release".
+        # No previous tag (first ever release) means everything on main counts.
+        $sinceDate = [datetime]"1970-01-01T00:00:00Z"
+        if ($tagVersions) {
+          $prevTag = "v$current"
+          $sinceDate = [datetime](git log -1 --format=%cI $prevTag)
+        }
+
+        # Page through every PR merged into main, since GraphQL's PullRequestOrderField has no
+        # "merged at" option — a PR's updatedAt can move after it merged (a later comment, a
+        # label change), so ordering by it and stopping early would risk missing one. Filtering
+        # client-side by mergedAt after fetching everything is the only reliable way.
+        $query = @'
+        query($owner: String!, $name: String!, $cursor: String) {
+          repository(owner: $owner, name: $name) {
+            pullRequests(states: MERGED, baseRefName: "main", first: 50, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                number
+                title
+                mergedAt
+                labels(first: 10) { nodes { name } }
+                closingIssuesReferences(first: 10) { nodes { number title labels(first: 10) { nodes { name } } } }
+              }
+            }
+          }
+        }
+        '@
+
+        $allPrs = @()
+        $cursor = $null
+        do {
+          $ghArgs = @('api', 'graphql', '-f', "query=$query", '-F', "owner=$owner", '-F', "name=$name")
+          if ($cursor) { $ghArgs += @('-F', "cursor=$cursor") }
+          $resp = (& gh @ghArgs) | ConvertFrom-Json
+          $page = $resp.data.repository.pullRequests
+          $allPrs += $page.nodes
+          $cursor = $page.pageInfo.endCursor
+        } while ($page.pageInfo.hasNextPage)
+
+        $mergedSinceLastTag = @($allPrs | Where-Object { [datetime]$_.mergedAt -gt $sinceDate })
+
+        $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
+        $hasWork = $mergedSinceLastTag.Count -gt 0
+
+        if (-not $hasWork -and -not $isManual) {
+          Write-Output "Nothing merged into main since $current; nothing to release."
+          Write-Output "hasWork=false" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
+
+        # One "item" per closed issue (using the issue's own title/labels), or the PR itself when
+        # it closes no issue (the chore/CI-only exception — see docs/WORKFLOW.md).
+        $items = foreach ($pr in $mergedSinceLastTag) {
+          $closed = @($pr.closingIssuesReferences.nodes)
+          if ($closed.Count -gt 0) {
+            foreach ($issue in $closed) {
+              [pscustomobject]@{ Number = $issue.number; Title = $issue.title; Labels = @($issue.labels.nodes.name) }
+            }
+          } else {
+            [pscustomobject]@{ Number = $pr.number; Title = $pr.title; Labels = @($pr.labels.nodes.name) }
+          }
+        }
+
+        # Bump type: an explicit workflow_dispatch input wins; otherwise "enhancement" on any
+        # item means minor, anything else (bug/chore/documentation/none) means patch. There's no
+        # automatic "major" signal (no "breaking" label convention yet) — force it via the
+        # workflow_dispatch input when one is actually needed.
+        $bumpInput = "${{ github.event.inputs.bump }}"
+        if ([string]::IsNullOrEmpty($bumpInput) -or $bumpInput -eq "auto") {
+          $labelNames = @($items | ForEach-Object { $_.Labels })
+          $bumpType = if ($labelNames -contains "enhancement") { "minor" } else { "patch" }
+        } else {
+          $bumpType = $bumpInput
+        }
 
         $newVersion = switch ($bumpType) {
           "major" { [version]::new($current.Major + 1, 0, 0) }
@@ -97,9 +145,9 @@ jobs:
           exit 0
         }
 
-        Write-Output "Current: $current -> New: $version (bump: $bumpType, from $($realIssues.Count) closed issue(s))"
+        Write-Output "Current: $current -> New: $version (bump: $bumpType, from $($items.Count) item(s) across $($mergedSinceLastTag.Count) merged PR(s))"
 
-        if ($realIssues.Count -eq 0) {
+        if ($items.Count -eq 0) {
           $body = "_No linked issues for this release._"
         } else {
           $categories = [ordered]@{
@@ -108,12 +156,11 @@ jobs:
             "### Changed" = @()
             "### Other"   = @()
           }
-          foreach ($issue in $realIssues) {
-            $labelNames = @($issue.labels | ForEach-Object { $_.name })
-            $line = "- $($issue.title) (#$($issue.number))"
-            if ($labelNames -contains "enhancement") { $categories["### Added"] += $line }
-            elseif ($labelNames -contains "bug") { $categories["### Fixed"] += $line }
-            elseif ($labelNames -contains "chore" -or $labelNames -contains "documentation") { $categories["### Changed"] += $line }
+          foreach ($item in $items) {
+            $line = "- $($item.Title) (#$($item.Number))"
+            if ($item.Labels -contains "enhancement") { $categories["### Added"] += $line }
+            elseif ($item.Labels -contains "bug") { $categories["### Fixed"] += $line }
+            elseif ($item.Labels -contains "chore" -or $item.Labels -contains "documentation") { $categories["### Changed"] += $line }
             else { $categories["### Other"] += $line }
           }
 
@@ -129,9 +176,6 @@ jobs:
 
         Write-Output "hasWork=true" >> $env:GITHUB_OUTPUT
         Write-Output "version=$version" >> $env:GITHUB_OUTPUT
-        if ($milestone) {
-          Write-Output "milestoneNumber=$($milestone.number)" >> $env:GITHUB_OUTPUT
-        }
 
         $delimiter = "NOTES_EOF_$([guid]::NewGuid().ToString('N'))"
         Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<$delimiter"
@@ -207,18 +251,3 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # Only rotated once the release above actually succeeded, so a failed build/release leaves
-    # "Unreleased" untouched (and this run's issues still count next time).
-    - name: Rotate the Unreleased milestone
-      if: steps.version.outputs.hasWork == 'true' && steps.version.outputs.milestoneNumber != ''
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        $repo = "${{ github.repository }}"
-        $number = "${{ steps.version.outputs.milestoneNumber }}"
-        $version = "${{ steps.version.outputs.version }}"
-
-        gh api "repos/$repo/milestones/$number" -X PATCH -f title="v$version" -f state="closed" | Out-Null
-        gh api "repos/$repo/milestones" -X POST -f title="Unreleased" | Out-Null
-      shell: pwsh

@@ -1,6 +1,6 @@
 # Changelog
 
-Versions through **1.2.1** below were written by hand, one entry per PR. From the next release on, this file is no longer maintained manually — release notes are generated automatically from closed GitHub Issues assigned to each version's [milestone](../../milestones), grouped by label (`enhancement` → Added, `bug` → Fixed, `chore`/`documentation` → Changed), the same categories this file already used. See the [Releases page](../../releases) for the full history going forward, and [CONTRIBUTING.md](CONTRIBUTING.md) for how issues/milestones drive a release.
+Versions through **1.2.1** below were written by hand, one entry per PR. From the next release on, this file is no longer maintained manually — release notes are generated automatically from the issues that PRs merged into `main` closed, grouped by label (`enhancement` → Added, `bug` → Fixed, `chore`/`documentation` → Changed), the same categories this file already used. See the [Releases page](../../releases) for the full history going forward, and [docs/RELEASE.md](docs/RELEASE.md) for how that's computed.
 
 Versioning follows [Semantic Versioning](https://semver.org/). The categories below follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 

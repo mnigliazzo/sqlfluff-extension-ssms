@@ -16,18 +16,15 @@ Open an issue with:
 - Why it matters
 - Any workarounds you've found
 
-## Issues, Milestones & Releases
+## Issues & Releases
 
-Release notes are generated automatically from closed Issues — not from PR descriptions or a hand-maintained changelog. For a change to show up correctly in the next release:
+Release notes are generated automatically from merged PRs and the issues they close — not from PR descriptions or a hand-maintained changelog. For a change to show up correctly in the next release:
 
 1. **File an Issue** for it (bug report or feature request — the templates already apply the right label: `bug` or `enhancement`).
-2. **Assign it to the `Unreleased` milestone.** This is what marks it as "part of the next release." Anything not in a milestone won't appear in release notes, even if it's merged.
-3. **Reference the issue in your PR** (e.g. "Closes #12"), so merging the PR closes the issue automatically.
-4. Pure maintenance/CI/tooling changes with no user-facing effect can skip this — they don't need an issue, and won't appear in release notes either way. (Label such an issue `chore` if you do want it tracked and categorized under "Changed".)
+2. **Reference the issue in your PR** (e.g. "Closes #12"). That's the only requirement — no milestone to assign, nothing else to remember. Merging the PR both closes the issue and is what the release workflow reads to categorize and version the change.
+3. Pure maintenance/CI/tooling changes with no user-facing effect can skip this — they don't need an issue, and are labeled `chore` on the PR instead so they still land under "Changed" in the notes.
 
-**Cutting a release**: fully automatic, no maintainer step needed. Every push to `main` re-runs the release workflow, which checks whether the `Unreleased` milestone has any closed issues; if it does, it computes the next version itself — `minor` if any closed issue is labeled `enhancement`, otherwise `patch` — from the latest published release tag (there's no automatic `major`; force one via the workflow's manual "Run workflow" button and its `bump` input when one is actually needed). It then builds, groups the closed issues into **Added** (`enhancement`), **Fixed** (`bug`), **Changed** (`chore`/`documentation`), or **Other** — mirroring [Keep a Changelog](https://keepachangelog.com/)'s categories — publishes the GitHub Release with the VSIX attached, and rotates `Unreleased` to `vX.Y.Z` (closed) plus a fresh empty `Unreleased`. If nothing is closed in `Unreleased`, the workflow run is a no-op — so a push with no linked, closed issue just doesn't cut a release.
-
-The version is never read from or written back to `AssemblyInfo.cs`/`source.extension.vsixmanifest` in the repo — `main`'s branch protection blocks direct pushes even from the release workflow's bot identity, so it can't commit a version bump back without a human-reviewed PR. It only ever exists as a git tag and GitHub Release; the version numbers checked into those two files are cosmetic (whatever they were last manually set to) and don't affect what gets published.
+See [docs/RELEASE.md](docs/RELEASE.md) for exactly how the version and changelog are computed, and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full issue-first development flow this repo follows (branch naming, the pre-work analysis comment, the resolution comment) — the `Code Changes` steps below are the short version of it.
 
 ## Branching & Merge Strategy
 
@@ -45,26 +42,27 @@ The version is never read from or written back to `AssemblyInfo.cs`/`source.exte
 
 **Note on the approval requirement**: with a single maintainer, there's currently no one else to approve PRs. `main`'s protection has `enforce_admins` disabled specifically so the repo owner can merge with `gh pr merge --admin` (or the "merge without waiting for requirements" option in the GitHub UI) when there's no second reviewer available — the `build` check must still pass either way. This is a documented exception, not the default path: use it sparingly, and prefer a real review once there's more than one maintainer.
 
-Branch naming follows the prefix that best describes the change, matching what this repo's history already uses:
+Branch naming encodes the issue it resolves — see [docs/WORKFLOW.md](docs/WORKFLOW.md) for why (it's what a pre-commit hook checks for Claude Code sessions):
 
 | Prefix | For |
 |---|---|
-| `feature/…` | New functionality (e.g. `feature/auto-save-after-fix`) |
-| `fix/…` | Bug fixes, including CI/tooling fixes (e.g. `fix/ci-msbuild-path`) |
-| `chore/…` | Maintenance that isn't a feature or fix (e.g. `chore/changelog-and-release-workflow`) |
-| `docs/…` | Documentation only (e.g. `docs/claude-md`) |
+| `feature/<issue#>-…` | New functionality (e.g. `feature/91-auto-save-toggle`) |
+| `fix/<issue#>-…` | Bug fixes, including CI/tooling fixes (e.g. `fix/88-ci-msbuild-path`) |
+| `docs/<issue#>-…` | Documentation only (e.g. `docs/95-workflow-doc`) |
+| `chore/…` | Maintenance that isn't a feature or fix, no issue required (e.g. `chore/changelog-and-release-workflow`) |
 
 Each PR is merged with **squash merge**, and the source branch is deleted immediately after (`gh pr merge --squash --delete-branch`). This keeps `main`'s history one commit per change, easy to bisect, and matching the `CHANGELOG.md` entries one-to-one.
 
 ### Code Changes
 
-1. If the change is user-facing, file an Issue first (or check one doesn't already exist) and assign it to the `Unreleased` milestone — see [Issues, Milestones & Releases](#issues-milestones--releases)
+1. If the change is user-facing, file an Issue first (or check one doesn't already exist) — see [Issues & Releases](#issues--releases)
 2. Fork (or branch, if you have push access) and clone the repo
-3. Create a branch using the naming convention above: `git checkout -b feature/my-feature`
-4. Make your changes (follow the existing code style)
-5. Test locally: build and install the VSIX
-6. Commit with a clear message
-7. Push and open a pull request against `main`, referencing the issue (e.g. "Closes #12")
+3. Create a branch using the naming convention above: `git checkout -b feature/91-my-feature`
+4. Post a comment on the issue with your analysis/plan before making changes — see [docs/WORKFLOW.md](docs/WORKFLOW.md)
+5. Make your changes (follow the existing code style)
+6. Test locally: build and install the VSIX
+7. Commit with a clear message
+8. Post a comment on the issue describing how you resolved it, then push and open a pull request against `main`, referencing the issue (e.g. "Closes #12")
 
 ### Build Locally
 
@@ -95,7 +93,7 @@ No VS SDK or SSMS/Visual Studio MSBuild needed for this — it's a plain `net8.0
 
 1. Keep PRs focused (one feature or fix per PR)
 2. Update the README if there are user-facing changes
-3. Reference the related issue (e.g. "Closes #2") — this is what makes the change show up in release notes, see [Issues, Milestones & Releases](#issues-milestones--releases)
+3. Reference the related issue (e.g. "Closes #2") — this is what makes the change show up in release notes, see [Issues & Releases](#issues--releases)
 4. Make sure the `build` and `test` checks pass and all review conversations are resolved — both are required before `main` will allow the merge
 5. One of the maintainers will review, approve, and merge (squash)
 

@@ -153,15 +153,14 @@ Release notes live on the [Releases page](../../releases), each with the compile
 
 ### Release Process
 
-Fully automatic — there's no manual version-bump or milestone-rename step. The VSIX is never built or committed by hand either; it's always produced by the CI pipeline, straight from a clean checkout of `main`. Release notes come from closed Issues, not from the CHANGELOG or PR descriptions — see [CONTRIBUTING.md](CONTRIBUTING.md#issues-milestones--releases) for how to file an issue so it shows up correctly.
+Fully automatic — there's no manual version-bump step, and no milestone to assign issues to either. The VSIX is never built or committed by hand; it's always produced by the CI pipeline, straight from a clean checkout of `main`. Release notes come from merged PRs and the issues they close, not from the CHANGELOG or PR descriptions — see [docs/RELEASE.md](docs/RELEASE.md) for the full mechanism and [docs/WORKFLOW.md](docs/WORKFLOW.md) for how to file an issue so it shows up correctly.
 
-1. User-facing changes start as a GitHub Issue, assigned to the `Unreleased` [milestone](../../milestones), labeled `enhancement`/`bug`/etc.
+1. User-facing changes start as a GitHub Issue, labeled `enhancement`/`bug`/etc.
 2. Branch, PR (referencing the issue, e.g. "Closes #12"), review, merge — as described above.
 3. Every push to `main` re-runs the **release** workflow, which:
-   - Does nothing if the `Unreleased` milestone has no closed issues (so a push with nothing user-facing just doesn't cut a release)
-   - Otherwise computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag (no file in the repo holds the version; `main`'s branch protection blocks the workflow from pushing a bump back to it anyway)
+   - Does nothing if no PR merged into `main` since the last release tag (so a push with nothing user-facing just doesn't cut a release)
+   - Otherwise computes the next version itself — `minor` if any merged PR closed an issue labeled `enhancement`, else `patch` — from the latest published release tag (no file in the repo holds the version; `main`'s branch protection blocks the workflow from pushing a bump back to it anyway)
    - Builds, groups the closed issues by label into Added/Fixed/Changed/Other, and publishes a GitHub Release tagged `vX.Y.Z` with the freshly built `SqlFluff.Ssms.vsix` attached
-   - Rotates `Unreleased` to `vX.Y.Z` (closed) and creates a fresh `Unreleased` for what comes next
 4. A `major` bump has no automatic signal — trigger the workflow manually ("Run workflow" on the Release workflow in the Actions tab) with its `bump` input set to `major` (or `minor`/`patch`) when one is actually needed.
 
 ## Support & Feedback
