@@ -17,7 +17,13 @@ namespace SqlFluff.Ssms.NewModel
                 version: ExtensionAssemblyVersion,
                 publisherName: "Matias Nigliazzo",
                 displayName: "SQLFluff for SSMS (new extension model preview)",
-                description: "Preview of SQLFluff for SSMS on the out-of-process VisualStudio.Extensibility model: lints .sql files through a Language Server."),
+                description: "Preview of SQLFluff for SSMS on the out-of-process VisualStudio.Extensibility model: lints .sql files through a Language Server.")
+            {
+                // SSMS is amd64-only. Left unset, an AnyCPU project targets amd64 and arm64, and
+                // the Visual Studio Installer (which installs new-model extensions) refuses a
+                // manifest with more than one install target.
+                InstallationTargetArchitecture = VisualStudioArchitecture.Amd64,
+            },
         };
     }
 
