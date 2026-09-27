@@ -17,13 +17,16 @@ namespace SqlFluff.Ssms.Services
         private readonly LintService _lint;
         private readonly ConditionalWeakTable<ITextBuffer, object> _tracked = new ConditionalWeakTable<ITextBuffer, object>();
 
-        // Path per docCookie, captured whenever we successfully resolve it (attach/save) rather
-        // than re-resolved at close time. By OnBeforeLastDocumentUnlock, an unsaved-and-discarded
-        // document's IVsTextBuffer/adapter mapping can already be torn down, so
-        // TryGetBufferFromDocCookie fails there even though it worked moments earlier - without
-        // this cache, DocumentClosed never runs and the Error List entries for that document are
-        // orphaned permanently (there's no later event that would clear them).
-        private readonly Dictionary<uint, string> _cookiePaths = new Dictionary<uint, string>();
+        // Buffer + path per docCookie, captured whenever we successfully resolve them
+        // (attach/save) rather than re-resolved at close time. By OnBeforeLastDocumentUnlock, an
+        // unsaved-and-discarded document's IVsTextBuffer/adapter mapping can already be torn
+        // down, so TryGetBufferFromDocCookie fails there even though it worked moments earlier.
+        // The cached buffer reference matters, not just the path: without it, a lint that was
+        // already in flight (lint-while-typing) when the tab closed keeps running and republishes
+        // the same violations into the Error List afterwards - the warning briefly disappears
+        // then "comes back". Passing the same buffer instance into LintService.Clear lets it find
+        // and cancel that pending lint/debounce via its own per-buffer state.
+        private readonly Dictionary<uint, (ITextBuffer Buffer, string Path)> _cookieInfo = new Dictionary<uint, (ITextBuffer Buffer, string Path)>();
 
         public DocumentEvents(SqlFluffPackage package, IVsRunningDocumentTable rdt, EditorServices editor, LintService lint)
         {
@@ -65,7 +68,7 @@ namespace SqlFluff.Ssms.Services
             {
                 // Keep the cache in sync with e.g. a Save As on a previously-unsaved document,
                 // so a later close looks up the saved path rather than a stale moniker.
-                _cookiePaths[docCookie] = path;
+                _cookieInfo[docCookie] = (buffer, path);
 
                 if (_package.GetSettings().LintOnSave)
                 {
@@ -81,16 +84,34 @@ namespace SqlFluff.Ssms.Services
             ThreadHelper.ThrowIfNotOnUIThread();
             if (dwReadLocksRemaining == 0 && dwEditLocksRemaining == 0)
             {
-                string path = _editor.TryGetBufferFromDocCookie(_rdt, docCookie, out _, out string resolvedPath)
-                    ? resolvedPath
-                    : (_cookiePaths.TryGetValue(docCookie, out string cachedPath) ? cachedPath : null);
+                ITextBuffer buffer;
+                string path;
+                if (_editor.TryGetBufferFromDocCookie(_rdt, docCookie, out ITextBuffer resolvedBuffer, out string resolvedPath))
+                {
+                    buffer = resolvedBuffer;
+                    path = resolvedPath;
+                }
+                else if (_cookieInfo.TryGetValue(docCookie, out (ITextBuffer Buffer, string Path) cached))
+                {
+                    buffer = cached.Buffer;
+                    path = cached.Path;
+                }
+                else
+                {
+                    buffer = null;
+                    path = null;
+                }
 
-                if (path != null)
+                if (buffer != null)
+                {
+                    _lint.Clear(buffer, path);
+                }
+                else if (path != null)
                 {
                     _lint.DocumentClosed(path);
                 }
 
-                _cookiePaths.Remove(docCookie);
+                _cookieInfo.Remove(docCookie);
             }
 
             return VSConstants.S_OK;
@@ -104,7 +125,7 @@ namespace SqlFluff.Ssms.Services
                 return;
             }
 
-            _cookiePaths[docCookie] = path;
+            _cookieInfo[docCookie] = (buffer, path);
 
             bool firstTime = false;
             _tracked.GetValue(buffer, b =>
