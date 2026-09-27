@@ -15,6 +15,7 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.TableManager;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using SqlFluff.Ssms.Core;
@@ -65,7 +66,7 @@ namespace SqlFluff.Ssms
                 componentModel.GetService<IVsEditorAdaptersFactoryService>(),
                 componentModel.GetService<ITextDocumentFactoryService>());
 
-            _errors = new ErrorListService(this);
+            _errors = new ErrorListService(this, componentModel.GetService<ITableManagerProvider>());
             _lint = new LintService(this, _editor, _errors);
 
             _rdt = (IVsRunningDocumentTable)await GetServiceAsync(typeof(SVsRunningDocumentTable));
@@ -824,9 +825,9 @@ namespace SqlFluff.Ssms
         private void ClearActiveDocument()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (_editor.TryGetActiveSqlView(out _, out ITextBuffer buffer, out string path))
+            if (_editor.TryGetActiveSqlView(out _, out ITextBuffer buffer, out _))
             {
-                _lint.Clear(buffer, path);
+                _lint.Clear(buffer);
                 OutputLog.SetStatus("SQLFluff: diagnostics cleared.");
             }
         }

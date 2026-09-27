@@ -102,13 +102,13 @@ namespace SqlFluff.Ssms.Services
                     path = null;
                 }
 
-                // Clear (cancel pending lints + drop diagnostics by their published key), but don't
+                // Clear (cancel pending lints + drop this buffer's diagnostics), but don't
                 // mark the buffer closed: SSMS's lock counts can hit 0 while the tab stays open, and
                 // a closed mark from here would then mute its linting. The editor-view listener
                 // (SqlFluffViewLifetimeListener) is what marks a buffer closed.
                 if (buffer != null)
                 {
-                    _lint.Clear(buffer, path);
+                    _lint.Clear(buffer);
                 }
                 else if (path != null)
                 {

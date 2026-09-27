@@ -97,10 +97,12 @@ The extension **never reads or writes the SQL file on disk** for linting/fixing.
 `Editor/ViolationStore.cs` is a `ConditionalWeakTable<ITextBuffer, …>`-backed store keyed by text buffer — the single source of truth for "what did sqlfluff find in this buffer, and where (as a `Span` on a specific `ITextSnapshot`)". Three independent consumers read from it and get notified of changes via a per-buffer subscription (not a static event, to avoid pinning buffers in memory):
 
 1. `Editor/SqlFluffTaggerProvider.cs` — `ITagger<IErrorTag>` implementation that turns violations into editor squiggles.
-2. `Services/ErrorListService.cs` — wraps a VS `ErrorListProvider` to mirror the same violations into the Error List window, with click-to-navigate.
+2. `Services/ErrorListService.cs` — an `ITableDataSource` on the Error List table (the model VS/SSMS language services use, not the legacy `ErrorListProvider`/`ErrorTask` API). Each open buffer owns one snapshot factory, replaced on re-lint and removed on close — ownership is by buffer, never by path, because unsaved queries have no reliable path and path-keyed entries let one document's clear wipe or miss another's. Only folder-wide Lint results for files that aren't open are owned by path. Row clicks go through `Services/ErrorListNavigation.cs` (an `ITableControlEventProcessorProvider`), since the Error List's default navigation opens `DocumentName` from disk, which fails for unsaved queries.
 3. `Editor/SqlFluffSuggestedActionsSource.cs` — `ISuggestedActionsSourceProvider`/`ISuggestedAction` implementation that surfaces "Fix with SQLFluff" / "Format with SQLFluff" in the native Light Bulb (`Alt+.`) menu when the cursor is on a violation span.
 
 `LintService.LintAsync` is what populates the store (via `SqlFluffRunner.LintAsync` + `ViolationStore.ToSpan` to map sqlfluff's 1-based line/column positions onto a snapshot `Span`), and `LintService.Clear` / `ClearDiagnostics` empties it.
+
+Closing a document is detected by `Editor/SqlFluffViewLifetimeListener.cs` (last editor view on a buffer closed → `LintService.BufferClosed`), not only by the RDT's `OnBeforeLastDocumentUnlock`: SSMS's query window doesn't reliably bring RDT lock counts to 0 when a tab closes, which is how an unsaved query closed with "Don't Save" used to leave its violations in the Error List. Only the view listener marks a buffer closed (which also drops any lint that finishes afterwards); the RDT path just clears, since its lock counts can reach 0 while the tab is still open.
 
 ### Fix and Format are the same code path with a different verb
 

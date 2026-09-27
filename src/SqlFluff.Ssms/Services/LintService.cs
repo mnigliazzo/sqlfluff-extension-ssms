@@ -23,12 +23,6 @@ namespace SqlFluff.Ssms.Services
             public CancellationTokenSource Lint;
             public CancellationTokenSource Debounce;
 
-            // The exact Error List key this buffer's violations were last published under. Close
-            // and re-publish clear by this recorded key rather than by a freshly re-resolved path,
-            // which can differ (moniker vs. on-disk path, before/after Save As) and would then miss.
-            public string PublishedPath;
-            public bool HasPublished;
-
             // Set once the buffer's last editor view closes; any lint still in flight or scheduled
             // for it afterwards is discarded instead of re-publishing into the Error List.
             public bool Closed;
@@ -111,7 +105,7 @@ namespace SqlFluff.Ssms.Services
                 }
                 else
                 {
-                    ClearDiagnostics(buffer, path);
+                    ClearDiagnostics(buffer);
                 }
                 return;
             }
@@ -587,7 +581,7 @@ namespace SqlFluff.Ssms.Services
             }
         }
 
-        public void Clear(ITextBuffer buffer, string path)
+        public void Clear(ITextBuffer buffer)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (_state.TryGetValue(buffer, out BufferState state))
@@ -596,12 +590,12 @@ namespace SqlFluff.Ssms.Services
                 state.Lint?.Cancel();
             }
 
-            ClearDiagnostics(buffer, path);
+            ClearDiagnostics(buffer);
         }
 
         // The buffer's last editor view closed: stop any pending/in-flight lint for it, drop its
-        // diagnostics under whatever key they were actually published with, and refuse further
-        // automatic publishes until a view reopens it or the user runs a command on it.
+        // diagnostics, and refuse further automatic publishes until a view reopens it or the user
+        // runs a command on it.
         public void BufferClosed(ITextBuffer buffer)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -609,7 +603,7 @@ namespace SqlFluff.Ssms.Services
             state.Closed = true;
             state.Debounce?.Cancel();
             state.Lint?.Cancel();
-            ClearDiagnostics(buffer, path: null);
+            ClearDiagnostics(buffer);
         }
 
         public void BufferOpened(ITextBuffer buffer)
@@ -624,7 +618,7 @@ namespace SqlFluff.Ssms.Services
         public void DocumentClosed(string path)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            _errors.Clear(path);
+            _errors.ClearDocument(path);
         }
 
         private int Publish(
@@ -637,46 +631,15 @@ namespace SqlFluff.Ssms.Services
 
             var set = new ViolationSet(snapshot, entries, settings.Severity);
             ViolationStore.Set(buffer, set);
-
-            // If this buffer previously published under a different key (e.g. moniker before a
-            // Save As), drop those entries so they don't linger as a second, stale copy.
-            BufferState state = _state.GetOrCreateValue(buffer);
-            if (state.HasPublished && !SameKey(state.PublishedPath, path))
-            {
-                _errors.Clear(state.PublishedPath);
-            }
-
-            _errors.Publish(path, set, entry => NavigateTo(buffer, path, set, entry));
-            state.PublishedPath = path;
-            state.HasPublished = true;
+            _errors.Publish(buffer, path, set, entry => NavigateTo(buffer, path, set, entry));
             return entries.Count;
         }
 
-        private void ClearDiagnostics(ITextBuffer buffer, string path)
+        private void ClearDiagnostics(ITextBuffer buffer)
         {
             ViolationStore.Clear(buffer);
-
-            // A null path means "whatever this buffer published under" - not the shared ""
-            // key, which other buffers with an unresolvable path may be using.
-            if (path != null)
-            {
-                _errors.Clear(path);
-            }
-
-            if (_state.TryGetValue(buffer, out BufferState state) && state.HasPublished)
-            {
-                if (path == null || !SameKey(state.PublishedPath, path))
-                {
-                    _errors.Clear(state.PublishedPath);
-                }
-
-                state.PublishedPath = null;
-                state.HasPublished = false;
-            }
+            _errors.Clear(buffer);
         }
-
-        private static bool SameKey(string a, string b) =>
-            string.Equals(a ?? string.Empty, b ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
         private void NavigateTo(ITextBuffer buffer, string path, ViolationSet set, ViolationEntry entry)
         {
