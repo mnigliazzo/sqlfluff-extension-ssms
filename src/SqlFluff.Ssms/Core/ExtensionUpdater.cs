@@ -14,9 +14,7 @@ namespace SqlFluff.Ssms.Core
         public UpdateCheckException(string message) : base(message) { }
     }
 
-    // Checks GitHub for the extension's latest release (used both to offer an extension
-    // self-update and, separately, to find the SqlFluff.Mcp.zip asset attached to the same
-    // release - see McpServerInstaller), downloads a release asset, and hands a downloaded .vsix
+    // Checks GitHub for the extension's latest release, downloads its .vsix, and hands it
     // to whatever's registered to open one (VSIXInstaller, normally) — the same thing that runs
     // when a user double-clicks a manually downloaded .vsix (see README's Install section).
     internal static class ExtensionUpdater
@@ -24,16 +22,10 @@ namespace SqlFluff.Ssms.Core
         private const string LatestReleaseUrl =
             "https://api.github.com/repos/mnigliazzo/sqlfluff-extension-ssms/releases/latest";
 
-        // Fetches and parses the latest release's info, unconditionally - not filtered by
-        // "newer than X", since callers judge that against different baselines (the installed
-        // extension version for the self-update check; a separately tracked local bundle version
-        // for the MCP server check). Returns null when the response didn't parse into a usable
-        // release. Throws UpdateCheckException when the check itself couldn't run at all, so
-        // callers can tell "ran fine, nothing there" apart from "couldn't tell". Shared by both
-        // checks specifically so a single SSMS startup with both "on startup" options enabled
-        // hits this rate-limited, unauthenticated endpoint once, not twice - see
-        // SqlFluffPackage.InitializeAsync's startup-checks block, which fetches this once and
-        // passes the same in-flight Task to both.
+        // Fetches and parses the latest release's info, unconditionally - the caller decides
+        // whether it's newer than what's installed. Returns null when the response didn't parse
+        // into a usable release. Throws UpdateCheckException when the check itself couldn't run
+        // at all, so callers can tell "ran fine, nothing there" apart from "couldn't tell".
         public static async Task<UpdateInfo> GetLatestReleaseInfoAsync(CancellationToken ct)
         {
             string json = await FetchLatestReleaseJsonAsync(ct).ConfigureAwait(false);
@@ -86,11 +78,8 @@ namespace SqlFluff.Ssms.Core
         }
 
         // GETs url and streams the response into a fresh, uniquely-named file under %TEMP%,
-        // returning its path. Shared by DownloadVsixAsync above and McpServerInstaller's zip
-        // download - same HttpClient/timeout/buffer-size shape, so a future change to how
-        // downloads behave (retries, progress, proxy support) only needs to happen once. Throws
-        // the underlying HttpRequestException/TaskCanceledException/IOException as-is; callers
-        // wrap it into their own domain-specific exception type.
+        // returning its path. Throws the underlying HttpRequestException/TaskCanceledException/
+        // IOException as-is; callers wrap it into their own domain-specific exception type.
         internal static async Task<string> DownloadToTempFileAsync(string url, string fileNamePrefix, string extension, CancellationToken ct)
         {
             string path = Path.Combine(Path.GetTempPath(), fileNamePrefix + "-" + Guid.NewGuid().ToString("N") + extension);

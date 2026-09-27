@@ -33,32 +33,6 @@ namespace SqlFluff.Ssms.Tests
         }
 
         [Fact]
-        public void Parse_CapturesMcpZipDownloadUrl_WhenAssetIsPresent()
-        {
-            const string json = @"{
-                ""tag_name"": ""v1.14.0"",
-                ""assets"": [
-                    { ""name"": ""SqlFluff.Ssms.vsix"", ""browser_download_url"": ""https://example.com/SqlFluff.Ssms.vsix"" },
-                    { ""name"": ""SqlFluff.Mcp.zip"", ""browser_download_url"": ""https://example.com/SqlFluff.Mcp.zip"" }
-                ]
-            }";
-
-            UpdateInfo result = UpdateInfoParser.Parse(json);
-
-            Assert.Equal("https://example.com/SqlFluff.Mcp.zip", result.McpZipDownloadUrl);
-        }
-
-        [Fact]
-        public void Parse_LeavesMcpZipDownloadUrlNull_WhenAssetIsAbsent()
-        {
-            const string json = @"{""tag_name"": ""v1.6.0"", ""assets"": [{""name"": ""SqlFluff.Ssms.vsix"", ""browser_download_url"": ""u""}]}";
-
-            UpdateInfo result = UpdateInfoParser.Parse(json);
-
-            Assert.Null(result.McpZipDownloadUrl);
-        }
-
-        [Fact]
         public void Parse_IgnoresNonVsixAssetsAndPicksTheVsixOne()
         {
             const string json = @"{

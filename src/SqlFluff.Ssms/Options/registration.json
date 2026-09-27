@@ -125,13 +125,6 @@
       "description": "Check when SSMS starts whether the sqlfluff Python tool (not the extension) is installed and up to date, and, if not, prompt to install/upgrade it via pip. Turn this off on a machine without internet/PyPI access, or to manage sqlfluff yourself - use SQLFluff > Install/Update SQLFluff Tool... to run the same check on demand regardless of this setting.",
       "default": true,
       "order": 1
-    },
-    "sqlfluff.updates.checkMcpServerOnStartup": {
-      "type": "boolean",
-      "title": "Check MCP server on startup",
-      "description": "Check when SSMS starts whether a newer SqlFluff.Mcp release is available and, the first time one is, offer to download it and register it with GitHub Copilot (%USERPROFILE%\\.mcp.json) - see 'AI assistant integration (MCP)' in the README. Declining once isn't asked again until a newer release ships. Turn this off to manage the MCP server yourself - use SQLFluff > Set Up MCP Server for Copilot... to run the same check on demand regardless of this setting.",
-      "default": true,
-      "order": 2
     }
   },
   "categories": {
