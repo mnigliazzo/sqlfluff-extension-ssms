@@ -53,94 +53,68 @@ namespace SqlFluff.Ssms.Services
             return true;
         }
 
-        public bool TryGetBufferFromDocCookie(IVsRunningDocumentTable rdt, uint cookie, out ITextBuffer buffer, out string path)
+        public bool TryGetBufferFromDocCookie(RunningDocumentTable rdt, uint cookie, out ITextBuffer buffer, out string path)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             buffer = null;
             path = null;
 
-            IntPtr docDataPtr = IntPtr.Zero;
+            RunningDocumentInfo info;
             try
             {
-                int hr = rdt.GetDocumentInfo(
-                    cookie, out _, out _, out _, out string moniker, out _, out _, out docDataPtr);
-                if (ErrorHandler.Failed(hr) || docDataPtr == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                ITextBuffer documentBuffer = BufferFromDocData(docDataPtr);
-                if (documentBuffer == null)
-                {
-                    return false;
-                }
-
-                string filePath = GetPath(documentBuffer) ?? moniker;
-                if (!IsSql(documentBuffer, filePath))
-                {
-                    return false;
-                }
-
-                buffer = documentBuffer;
-                path = filePath;
-                return true;
+                info = rdt.GetDocumentInfo(cookie);
             }
-            finally
+            catch (COMException)
             {
-                if (docDataPtr != IntPtr.Zero)
-                {
-                    Marshal.Release(docDataPtr);
-                }
+                // The cookie is no longer in the table (e.g. the document is mid-teardown).
+                return false;
             }
+
+            ITextBuffer documentBuffer = BufferFromDocData(info.DocData);
+            if (documentBuffer == null)
+            {
+                return false;
+            }
+
+            string filePath = GetPath(documentBuffer) ?? info.Moniker;
+            if (!IsSql(documentBuffer, filePath))
+            {
+                return false;
+            }
+
+            buffer = documentBuffer;
+            path = filePath;
+            return true;
         }
 
         // Looks an already-open document up by path instead of by RDT cookie — used by the
         // folder-wide batch commands, which start from a file path on disk, not a live document
         // event. isDirty lets the caller skip files with unsaved changes rather than silently
         // overwrite them on disk out from under the open buffer.
-        public bool TryGetOpenBuffer(IVsRunningDocumentTable rdt, string path, out ITextBuffer buffer, out bool isDirty)
+        public bool TryGetOpenBuffer(RunningDocumentTable rdt, string path, out ITextBuffer buffer, out bool isDirty)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             buffer = null;
             isDirty = false;
 
-            IntPtr docDataPtr = IntPtr.Zero;
-            try
+            ITextBuffer documentBuffer = BufferFromDocData(rdt.FindDocument(path));
+            if (documentBuffer == null)
             {
-                int hr = rdt.FindAndLockDocument(
-                    (uint)_VSRDTFLAGS.RDT_NoLock, path, out _, out _, out docDataPtr, out _);
-                if (ErrorHandler.Failed(hr))
-                {
-                    return false;
-                }
-
-                ITextBuffer documentBuffer = BufferFromDocData(docDataPtr);
-                if (documentBuffer == null)
-                {
-                    return false;
-                }
-
-                buffer = documentBuffer;
-                isDirty = _documents.TryGetTextDocument(documentBuffer, out ITextDocument document) && document.IsDirty;
-                return true;
+                return false;
             }
-            finally
-            {
-                if (docDataPtr != IntPtr.Zero)
-                {
-                    Marshal.Release(docDataPtr);
-                }
-            }
+
+            buffer = documentBuffer;
+            isDirty = _documents.TryGetTextDocument(documentBuffer, out ITextDocument document) && document.IsDirty;
+            return true;
         }
 
-        private ITextBuffer BufferFromDocData(IntPtr docDataPtr)
+        private ITextBuffer BufferFromDocData(object docData)
         {
-            if (docDataPtr == IntPtr.Zero)
+            if (docData == null)
             {
                 return null;
             }
 
-            object docData = Marshal.GetObjectForIUnknown(docDataPtr);
             IVsTextBuffer vsBuffer = docData as IVsTextBuffer;
             if (vsBuffer == null && docData is IVsTextBufferProvider provider &&
                 ErrorHandler.Succeeded(provider.GetTextBuffer(out IVsTextLines lines)))

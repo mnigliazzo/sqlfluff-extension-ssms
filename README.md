@@ -67,10 +67,12 @@ Once installed, new versions no longer require a manual download: **SQLFluff > C
 
 This is about the `sqlfluff` *tool* itself (the Python linter this extension shells out to) — separate from the extension update check above. Every time SSMS starts, and any time you run **SQLFluff > Install/Update SQLFluff Tool...**, the extension:
 
-1. Checks whether `sqlfluff` is reachable at all. If not, it prompts to install it now via `pip install sqlfluff` (this needs Python and pip already on `PATH` — installing Python itself is out of scope).
-2. If it is reachable, checks its version against the latest release on PyPI and, if outdated, prompts to upgrade via `pip install --upgrade sqlfluff`.
+1. Checks whether `sqlfluff` is reachable at all. If not, it offers to install it now via `pip install sqlfluff` (this needs Python and pip already on `PATH` — installing Python itself is out of scope).
+2. If it is reachable, checks its version against the latest release on PyPI and, if outdated, offers to upgrade via `pip install --upgrade sqlfluff`.
 
-Either prompt, if accepted, runs pip in the background and streams its output to the SQLFluff output pane; declining either one just leaves a note in the status bar and output pane instead of pip installing/upgrading anything. Disable the startup check entirely with **Check SQLFluff tool on startup** in Options (see [Configuration](#configuration)) — the manual command still runs it on demand either way.
+On startup these offers appear as a yellow info bar at the top of SSMS, so they never interrupt what you're doing; from the menu command they're a confirmation dialog.
+
+Either offer, if accepted, runs pip in the background and streams its output to the SQLFluff output pane; declining either one just leaves a note in the status bar and output pane instead of pip installing/upgrading anything. Disable the startup check entirely with **Check SQLFluff tool on startup** in Options (see [Configuration](#configuration)) — the manual command still runs it on demand either way.
 
 ## Usage
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -12,7 +13,7 @@ namespace SqlFluff.Ssms.Services
     internal sealed class DocumentEvents : IVsRunningDocTableEvents3
     {
         private readonly SqlFluffPackage _package;
-        private readonly IVsRunningDocumentTable _rdt;
+        private readonly RunningDocumentTable _rdt;
         private readonly EditorServices _editor;
         private readonly LintService _lint;
         private readonly ConditionalWeakTable<ITextBuffer, object> _tracked = new ConditionalWeakTable<ITextBuffer, object>();
@@ -28,7 +29,7 @@ namespace SqlFluff.Ssms.Services
         // and cancel that pending lint/debounce via its own per-buffer state.
         private readonly Dictionary<uint, (ITextBuffer Buffer, string Path)> _cookieInfo = new Dictionary<uint, (ITextBuffer Buffer, string Path)>();
 
-        public DocumentEvents(SqlFluffPackage package, IVsRunningDocumentTable rdt, EditorServices editor, LintService lint)
+        public DocumentEvents(SqlFluffPackage package, RunningDocumentTable rdt, EditorServices editor, LintService lint)
         {
             _package = package;
             _rdt = rdt;
@@ -39,15 +40,9 @@ namespace SqlFluff.Ssms.Services
         public void AttachToOpenDocuments()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (ErrorHandler.Failed(_rdt.GetRunningDocumentsEnum(out IEnumRunningDocuments enumerator)))
+            foreach (uint cookie in _rdt.Select(document => document.DocCookie).ToList())
             {
-                return;
-            }
-
-            var cookies = new uint[1];
-            while (enumerator.Next(1, cookies, out uint fetched) == VSConstants.S_OK && fetched == 1)
-            {
-                Attach(cookies[0], isBulkAttach: true);
+                Attach(cookie, isBulkAttach: true);
             }
         }
 

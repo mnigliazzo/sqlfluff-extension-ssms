@@ -10,7 +10,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.CommandBars;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
@@ -27,19 +26,22 @@ namespace SqlFluff.Ssms
 {
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [InstalledProductRegistration("SQLFluff for SSMS", "SQLFluff linter and formatter integration.", "1.0.0")]
-    [ProvideMenuResource("Menus.ctmenu", 1)]
+    // Bump the version whenever SqlFluffPackage.vsct changes: Visual Studio only re-merges an
+    // extension's menus and toolbars (and applies DefaultDocked to new toolbars) when it changes.
+    [ProvideMenuResource("Menus.ctmenu", 2)]
     [ProvideSettingsManifest(PackageRelativeManifestFile = @"Options\registration.json")]
     [ProvideAutoLoad(VSConstants.UICONTEXT.ShellInitialized_string, PackageAutoLoadFlags.BackgroundLoad)]
     [Guid(PackageGuids.PackageString)]
     public sealed class SqlFluffPackage : AsyncPackage
     {
         private ExtensionOptions _options;
+        private InfoBarService _infoBars;
         private ErrorListService _errors;
         private LintService _lint;
         private EditorServices _editor;
         private FolderBatchService _folderBatch;
         private DocumentEvents _documentEvents;
-        private IVsRunningDocumentTable _rdt;
+        private RunningDocumentTable _rdt;
         private uint _rdtCookie;
         private CancellationTokenSource _folderBatchCts;
 
@@ -73,6 +75,7 @@ namespace SqlFluff.Ssms
 
             // First, before anything (including MEF components reaching in via Instance) reads settings.
             _options = await ExtensionOptions.CreateAsync(this, cancellationToken);
+            _infoBars = new InfoBarService(this);
             Instance = this;
 
             var componentModel = (IComponentModel)await GetServiceAsync(typeof(SComponentModel));
@@ -84,7 +87,7 @@ namespace SqlFluff.Ssms
             _errors = new ErrorListService(this, componentModel.GetService<ITableManagerProvider>());
             _lint = new LintService(this, _editor, _errors);
 
-            _rdt = (IVsRunningDocumentTable)await GetServiceAsync(typeof(SVsRunningDocumentTable));
+            _rdt = new RunningDocumentTable(this);
             _folderBatch = new FolderBatchService(this, _rdt, _editor, _lint, _errors);
 
             var commands = await GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
@@ -106,10 +109,8 @@ namespace SqlFluff.Ssms
             }
 
             _documentEvents = new DocumentEvents(this, _rdt, _editor, _lint);
-            _rdt.AdviseRunningDocTableEvents(_documentEvents, out _rdtCookie);
+            _rdtCookie = _rdt.Advise(_documentEvents);
             _documentEvents.AttachToOpenDocuments();
-
-            EnsureToolbarVisibleOnce();
 
             // Also visible any time via Tools > Options > SQLFluff > Extension version.
             OutputLog.Write("SQLFluff for SSMS v" + DisplayVersion + " loaded.");
@@ -154,48 +155,6 @@ namespace SqlFluff.Ssms
                     await CheckMcpServerAsync(userInitiated: false, latestReleaseTask);
                 }
             }).Task.FileAndForget("sqlfluff/startup-checks");
-        }
-
-        // The toolbar's DefaultDocked CommandFlag in SqlFluffPackage.vsct is supposed to make VS show
-        // it automatically the first time the package loads, but SSMS 22 doesn't reliably honor that
-        // (issue #27 found the same kind of gap for the query editor's context menu - SSMS 22 doesn't
-        // always behave like a plain VS shell for command UI). Force it visible via DTE.CommandBars
-        // once per extension version, then leave the user's own show/hide choice alone until the next
-        // version - gating on the version rather than a plain "ever shown" bool means a user who hid
-        // it deliberately isn't fought every startup, but a release that changes the toolbar (#42
-        // itself added a second button group to it) still gets one fresh chance to surface it instead
-        // of stopping forever after whichever version first showed it.
-        private void EnsureToolbarVisibleOnce()
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            string currentVersion = GetType().Assembly.GetName().Version.ToString(3);
-            if (_options.ToolbarShownForVersion == currentVersion)
-            {
-                return;
-            }
-
-            // Broad catch is deliberate: this runs inline in InitializeAsync, so anything left
-            // uncaught fails the whole package load (see DocumentEvents.OnBeforeSave for the same
-            // must-not-fail reasoning). SSMS 22's DTE/CommandBars implementation is exactly the kind
-            // of "doesn't always behave like a plain VS shell" surface where an unexpected exception
-            // type is plausible, not just the handful of COM-ish ones.
-            try
-            {
-                var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
-                var commandBars = (CommandBars)dte.CommandBars;
-                CommandBar toolbar = commandBars["SQLFluff"];
-                toolbar.Visible = true;
-            }
-            catch (Exception ex)
-            {
-                // Only record it "handled" once the user has actually had a chance to see the
-                // toolbar - if showing it failed, keep retrying on future startups rather than
-                // silently giving up with nothing but a buried Output pane line.
-                OutputLog.Write("SQLFluff: couldn't show the toolbar automatically - enable it manually via right-click on any toolbar > SQLFluff. (" + ex.Message + ")");
-                return;
-            }
-
-            _options.ToolbarShownForVersion = currentVersion;
         }
 
         private void CheckSqlFluffTool(bool userInitiated)
@@ -260,7 +219,7 @@ namespace SqlFluff.Ssms
                     }
 
                     OutputLog.SetStatus("SQLFluff: not found. Install with 'pip install sqlfluff' or set its path in Tools > Options > SQLFluff.");
-                    await OfferInstallSqlFluffToolAsync();
+                    await OfferInstallSqlFluffToolAsync(userInitiated);
                     return;
                 }
 
@@ -272,9 +231,21 @@ namespace SqlFluff.Ssms
             }
         }
 
-        private async Task OfferInstallSqlFluffToolAsync()
+        private async Task OfferInstallSqlFluffToolAsync(bool userInitiated)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (!userInitiated)
+            {
+                await _infoBars.ShowAsync(
+                    "the SQLFluff Python tool wasn't found, so nothing can be linted yet.",
+                    new (string, Action)[]
+                    {
+                        ("Install with pip", () => RunPipInstallInBackground(upgrade: false)),
+                        ("Open Options", OpenOptions),
+                    });
+                return;
+            }
+
             int result = VsShellUtilities.ShowMessageBox(
                 this,
                 "SQLFluff (the Python linter/formatter this extension relies on) was not found.\n\n" +
@@ -334,6 +305,14 @@ namespace SqlFluff.Ssms
 
             OutputLog.Write("A newer SQLFluff tool release is available on PyPI: v" + latest + " (installed: v" + installedVersion + ").");
 
+            if (!userInitiated)
+            {
+                await _infoBars.ShowAsync(
+                    "SQLFluff tool v" + latest + " is available (you have v" + installedVersion + ").",
+                    new (string, Action)[] { ("Upgrade with pip", () => RunPipInstallInBackground(upgrade: true)) });
+                return;
+            }
+
             int result = VsShellUtilities.ShowMessageBox(
                 this,
                 "A newer version of the SQLFluff tool is available: v" + latest + " (you have v" + installedVersion + ").\n\n" +
@@ -348,6 +327,11 @@ namespace SqlFluff.Ssms
             }
 
             await RunPipInstallAsync(upgrade: true);
+        }
+
+        private void RunPipInstallInBackground(bool upgrade)
+        {
+            JoinableTaskFactory.RunAsync(() => RunPipInstallAsync(upgrade)).Task.FileAndForget("sqlfluff/pip-install");
         }
 
         // Shared by both the "not found" and "outdated" prompts above - the only difference
@@ -494,6 +478,24 @@ namespace SqlFluff.Ssms
                     return;
                 }
 
+                if (!userInitiated)
+                {
+                    // Declining (or closing the bar) is recorded per version, so it isn't offered
+                    // again until a newer SqlFluff.Mcp release ships. Accepting is never recorded
+                    // up front - see InstallMcpServerAsync/RegisterMcpServerAsync for why.
+                    string version = latest.Version;
+                    Action decline = () => _options.McpServerOfferedForVersion = version;
+                    await _infoBars.ShowAsync(
+                        "set up the SqlFluff MCP server (v" + version + ") so GitHub Copilot can lint and format SQL?",
+                        new (string, Action)[]
+                        {
+                            ("Set up", () => JoinableTaskFactory.RunAsync(() => InstallMcpServerAsync(latest)).Task.FileAndForget("sqlfluff/mcp-install")),
+                            ("Not for this version", decline),
+                        },
+                        onDismissed: decline);
+                    return;
+                }
+
                 int result = VsShellUtilities.ShowMessageBox(
                     this,
                     "Set up the SqlFluff MCP server for GitHub Copilot?\n\n" +
@@ -620,12 +622,15 @@ namespace SqlFluff.Ssms
         private const string SqlFluffDocumentationUrl = "https://docs.sqlfluff.com/en/stable/";
 
         // Unified Settings has no documented API to open a specific category, so this opens
-        // Tools > Options and points the user at the SQLFluff section.
+        // Tools > Options (the standard command) and points the user at the SQLFluff section.
         private void OpenOptions()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
-            dte?.ExecuteCommand("Tools.Options");
+            if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService commands)
+            {
+                commands.GlobalInvoke(new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.ToolsOptions));
+            }
+
             OutputLog.SetStatus("SQLFluff: search for \"SQLFluff\" in Tools > Options.");
         }
 
@@ -989,7 +994,7 @@ namespace SqlFluff.Ssms
                 ThreadHelper.ThrowIfNotOnUIThread();
                 if (_rdt != null && _rdtCookie != 0)
                 {
-                    _rdt.UnadviseRunningDocTableEvents(_rdtCookie);
+                    _rdt.Unadvise(_rdtCookie);
                     _rdtCookie = 0;
                 }
 

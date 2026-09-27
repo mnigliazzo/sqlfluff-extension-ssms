@@ -24,9 +24,8 @@ namespace SqlFluff.Ssms.Options
     }
 
     // User options live in Unified Settings (Tools > Options > SQLFluff, declared in
-    // Options/registration.json). Values from the previous DialogPage-based options page are copied
-    // over once, and are also what's read if Unified Settings is unavailable or turned off
-    // ("classic mode"), per ISettingsReader's guidance to fall back to legacy storage there.
+    // Options/registration.json). Values saved by versions that still used a DialogPage options
+    // page are copied over once on upgrade; after that the old storage is never read.
     internal sealed class ExtensionOptions
     {
         private const string LegacyCollection = @"DialogPage\SqlFluff.Ssms.Options.SqlFluffOptionsPage";
@@ -53,7 +52,7 @@ namespace SqlFluff.Ssms.Options
             var options = new ExtensionOptions(unified, store);
             if (unified == null)
             {
-                OutputLog.Write("Unified Settings isn't available; using the previous options storage (read-only).");
+                OutputLog.Write("Unified Settings isn't available; SQLFluff is using its default options.");
             }
             else
             {
@@ -61,13 +60,6 @@ namespace SqlFluff.Ssms.Options
             }
 
             return options;
-        }
-
-        // Not user-facing: see SqlFluffPackage.EnsureToolbarVisibleOnce.
-        public string ToolbarShownForVersion
-        {
-            get => GetState(nameof(ToolbarShownForVersion));
-            set => SetState(nameof(ToolbarShownForVersion), value);
         }
 
         // Not user-facing: see SqlFluffPackage.CheckMcpServerAsync.
@@ -81,7 +73,7 @@ namespace SqlFluff.Ssms.Options
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             ISettingsReader reader = _unified?.GetReader();
-            SqlFluffSettings settings = SettingsSchema.Build(definition => ReadUnified(reader, definition) ?? ReadLegacy(definition));
+            SqlFluffSettings settings = SettingsSchema.Build(definition => ReadUnified(reader, definition));
 
             // A changed executable path invalidates SqlFluffRunner's cached launch command - the
             // old DialogPage did this in SaveSettingsToStorage.
@@ -115,23 +107,29 @@ namespace SqlFluff.Ssms.Options
             }
             catch (Exception ex)
             {
-                // Beta-quality API surface in SSMS; never let an options read break linting.
+                // Never let an options read break linting; fall back to the default.
                 if (!_reportedReadFailure)
                 {
                     _reportedReadFailure = true;
-                    OutputLog.Write("Couldn't read option '" + definition.Moniker + "' from Unified Settings (" + ex.Message + "); using the previous options storage.");
+                    OutputLog.Write("Couldn't read option '" + definition.Moniker + "' from Unified Settings (" + ex.Message + "); using its default.");
                 }
 
                 return null;
             }
         }
 
-        private static object ValueOrNull<T>(SettingRetrieval<T> retrieval)
+        private object ValueOrNull<T>(SettingRetrieval<T> retrieval)
         {
+            if (retrieval.Outcome == SettingRetrievalOutcome.NotSupportedInClassicMode && !_reportedReadFailure)
+            {
+                _reportedReadFailure = true;
+                OutputLog.Write("Unified Settings is turned off in this SSMS; SQLFluff is using its default options until it's turned back on.");
+            }
+
             return retrieval.Outcome == SettingRetrievalOutcome.Success ? (object)retrieval.Value : null;
         }
 
-        private object ReadLegacy(SettingDefinition definition)
+        private object ReadPreviousVersionValue(SettingDefinition definition)
         {
             if (!_store.PropertyExists(LegacyCollection, definition.LegacyName))
             {
@@ -155,7 +153,7 @@ namespace SqlFluff.Ssms.Options
             int queued = 0;
             foreach (SettingDefinition definition in SettingsSchema.All)
             {
-                object legacy = ReadLegacy(definition);
+                object legacy = ReadPreviousVersionValue(definition);
                 if (legacy == null || Equals(legacy, definition.Default))
                 {
                     continue;
@@ -206,21 +204,21 @@ namespace SqlFluff.Ssms.Options
                 OutputLog.Write("Migrated " + queued + " option(s) from the previous options page.");
             }
 
+            // Carry over "MCP setup already offered for vX" so upgrading doesn't re-prompt.
+            const string mcpOffered = nameof(McpServerOfferedForVersion);
+            if (!_store.PropertyExists(StateCollection, mcpOffered) && _store.PropertyExists(LegacyCollection, mcpOffered))
+            {
+                SetState(mcpOffered, _store.GetString(LegacyCollection, mcpOffered));
+            }
+
             EnsureStateCollection();
             _store.SetBoolean(StateCollection, MigratedFlag, true);
         }
 
-        // Falls back to the old DialogPage collection so values recorded by earlier versions (e.g.
-        // "MCP setup already offered for v1.15.3") carry over instead of re-prompting.
         private string GetState(string name)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            if (_store.PropertyExists(StateCollection, name))
-            {
-                return _store.GetString(StateCollection, name);
-            }
-
-            return _store.PropertyExists(LegacyCollection, name) ? _store.GetString(LegacyCollection, name) : string.Empty;
+            return _store.PropertyExists(StateCollection, name) ? _store.GetString(StateCollection, name) : string.Empty;
         }
 
         private void SetState(string name, string value)
