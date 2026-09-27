@@ -151,91 +151,9 @@ namespace SqlFluff.Ssms.Services
             return vsBuffer == null ? null : _adapters.GetDocumentBuffer(vsBuffer);
         }
 
-        private sealed class MonikerCache
-        {
-            public string Value;
-            public int LastMissTick;
-            public bool HasMissed;
-        }
-
-        // A miss isn't cached forever - a brand-new query can be queried before the RDT has
-        // registered it - but retries are throttled, since command-status refreshes call this
-        // often and each retry walks the whole RDT.
-        private const int MonikerRetryIntervalMs = 2000;
-
-        // Falls back to the buffer's RDT moniker (e.g. "SQLQuery1.sql") when there's no on-disk
-        // file - an unsaved new query has no ITextDocument.FilePath - so every caller (lint while
-        // typing, manual commands, Light Bulb actions, RDT events) agrees on the same path for a
-        // given buffer. The moniker is cached on the buffer: this runs on every keystroke via
-        // lint-while-typing, and once the document gets a real file path that branch is taken
-        // first, so a stale cached moniker is never returned.
         public string GetPath(ITextBuffer buffer)
         {
-            string filePath = _documents.TryGetTextDocument(buffer, out ITextDocument document) ? document.FilePath : null;
-            if (!string.IsNullOrEmpty(filePath))
-            {
-                return filePath;
-            }
-
-            MonikerCache cache = buffer.Properties.GetOrCreateSingletonProperty(typeof(MonikerCache), () => new MonikerCache());
-            if (!string.IsNullOrEmpty(cache.Value))
-            {
-                return cache.Value;
-            }
-
-            int now = Environment.TickCount;
-            if (cache.HasMissed && unchecked(now - cache.LastMissTick) < MonikerRetryIntervalMs)
-            {
-                return null;
-            }
-
-            cache.Value = FindMonikerForBuffer(buffer);
-            if (string.IsNullOrEmpty(cache.Value))
-            {
-                cache.HasMissed = true;
-                cache.LastMissTick = now;
-            }
-
-            return cache.Value;
-        }
-
-        private string FindMonikerForBuffer(ITextBuffer buffer)
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            if (!(_serviceProvider.GetService(typeof(SVsRunningDocumentTable)) is IVsRunningDocumentTable rdt) ||
-                ErrorHandler.Failed(rdt.GetRunningDocumentsEnum(out IEnumRunningDocuments enumerator)))
-            {
-                return null;
-            }
-
-            var cookies = new uint[1];
-            while (enumerator.Next(1, cookies, out uint fetched) == VSConstants.S_OK && fetched == 1)
-            {
-                IntPtr docDataPtr = IntPtr.Zero;
-                try
-                {
-                    int hr = rdt.GetDocumentInfo(
-                        cookies[0], out _, out _, out _, out string moniker, out _, out _, out docDataPtr);
-                    if (ErrorHandler.Failed(hr) || docDataPtr == IntPtr.Zero)
-                    {
-                        continue;
-                    }
-
-                    if (ReferenceEquals(BufferFromDocData(docDataPtr), buffer))
-                    {
-                        return moniker;
-                    }
-                }
-                finally
-                {
-                    if (docDataPtr != IntPtr.Zero)
-                    {
-                        Marshal.Release(docDataPtr);
-                    }
-                }
-            }
-
-            return null;
+            return _documents.TryGetTextDocument(buffer, out ITextDocument document) ? document.FilePath : null;
         }
 
         // Root of the currently open folder or solution, if any — including an "Open Folder"
