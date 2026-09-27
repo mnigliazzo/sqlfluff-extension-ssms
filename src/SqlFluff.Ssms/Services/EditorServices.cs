@@ -154,7 +154,14 @@ namespace SqlFluff.Ssms.Services
         private sealed class MonikerCache
         {
             public string Value;
+            public int LastMissTick;
+            public bool HasMissed;
         }
+
+        // A miss isn't cached forever - a brand-new query can be queried before the RDT has
+        // registered it - but retries are throttled, since command-status refreshes call this
+        // often and each retry walks the whole RDT.
+        private const int MonikerRetryIntervalMs = 2000;
 
         // Falls back to the buffer's RDT moniker (e.g. "SQLQuery1.sql") when there's no on-disk
         // file - an unsaved new query has no ITextDocument.FilePath - so every caller (lint while
@@ -171,9 +178,22 @@ namespace SqlFluff.Ssms.Services
             }
 
             MonikerCache cache = buffer.Properties.GetOrCreateSingletonProperty(typeof(MonikerCache), () => new MonikerCache());
+            if (!string.IsNullOrEmpty(cache.Value))
+            {
+                return cache.Value;
+            }
+
+            int now = Environment.TickCount;
+            if (cache.HasMissed && unchecked(now - cache.LastMissTick) < MonikerRetryIntervalMs)
+            {
+                return null;
+            }
+
+            cache.Value = FindMonikerForBuffer(buffer);
             if (string.IsNullOrEmpty(cache.Value))
             {
-                cache.Value = FindMonikerForBuffer(buffer);
+                cache.HasMissed = true;
+                cache.LastMissTick = now;
             }
 
             return cache.Value;

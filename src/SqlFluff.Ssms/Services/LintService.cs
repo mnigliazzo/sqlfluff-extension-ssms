@@ -647,11 +647,17 @@ namespace SqlFluff.Ssms.Services
         private void ClearDiagnostics(ITextBuffer buffer, string path)
         {
             ViolationStore.Clear(buffer);
-            _errors.Clear(path);
+
+            // A null path means "whatever this buffer published under" - not the shared ""
+            // key, which other buffers with an unresolvable path may be using.
+            if (path != null)
+            {
+                _errors.Clear(path);
+            }
 
             if (_state.TryGetValue(buffer, out BufferState state) && state.HasPublished)
             {
-                if (!SameKey(state.PublishedPath, path))
+                if (path == null || !SameKey(state.PublishedPath, path))
                 {
                     _errors.Clear(state.PublishedPath);
                 }
