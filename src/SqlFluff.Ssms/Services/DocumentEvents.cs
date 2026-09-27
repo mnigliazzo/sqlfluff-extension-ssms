@@ -15,7 +15,20 @@ namespace SqlFluff.Ssms.Services
         private readonly IVsRunningDocumentTable _rdt;
         private readonly EditorServices _editor;
         private readonly LintService _lint;
-        private readonly ConditionalWeakTable<ITextBuffer, object> _tracked = new ConditionalWeakTable<ITextBuffer, object>();
+        // Holds the moniker-fallback path for a buffer we've already resolved via
+        // EditorServices.TryGetBufferFromDocCookie (which does GetPath(buffer) ?? moniker), kept
+        // up to date on save. EditorServices.GetPath(buffer) alone has no moniker fallback - it's
+        // null for a document with no on-disk file (an unsaved new query). OnBufferChanged only
+        // has the ITextBuffer, not a docCookie, so it can't re-resolve the moniker itself; without
+        // this cache it published lint-while-typing violations under a null/"" path while every
+        // other path in this class (attach, save, close) used the real moniker, so the close-time
+        // Error List clear could never find and remove what lint-while-typing had just published.
+        private sealed class TrackedBuffer
+        {
+            public string Path;
+        }
+
+        private readonly ConditionalWeakTable<ITextBuffer, TrackedBuffer> _tracked = new ConditionalWeakTable<ITextBuffer, TrackedBuffer>();
 
         // Buffer + path per docCookie, captured whenever we successfully resolve them
         // (attach/save) rather than re-resolved at close time. By OnBeforeLastDocumentUnlock, an
@@ -69,6 +82,10 @@ namespace SqlFluff.Ssms.Services
                 // Keep the cache in sync with e.g. a Save As on a previously-unsaved document,
                 // so a later close looks up the saved path rather than a stale moniker.
                 _cookieInfo[docCookie] = (buffer, path);
+                if (_tracked.TryGetValue(buffer, out TrackedBuffer tracked))
+                {
+                    tracked.Path = path;
+                }
 
                 if (_package.GetSettings().LintOnSave)
                 {
@@ -128,12 +145,13 @@ namespace SqlFluff.Ssms.Services
             _cookieInfo[docCookie] = (buffer, path);
 
             bool firstTime = false;
-            _tracked.GetValue(buffer, b =>
+            TrackedBuffer tracked = _tracked.GetValue(buffer, b =>
             {
                 firstTime = true;
                 b.PostChanged += OnBufferChanged;
-                return new object();
+                return new TrackedBuffer();
             });
+            tracked.Path = path;
 
             if (!firstTime)
             {
@@ -176,7 +194,12 @@ namespace SqlFluff.Ssms.Services
             SqlFluffSettings settings = _package.GetSettings();
             if (settings.LintOnType)
             {
-                _lint.Schedule(buffer, _editor.GetPath(buffer), settings.TypeDelayMs);
+                // Use the cached moniker-fallback path, not EditorServices.GetPath(buffer)
+                // directly - see the _tracked field comment for why the two can disagree.
+                string path = _tracked.TryGetValue(buffer, out TrackedBuffer tracked)
+                    ? tracked.Path
+                    : _editor.GetPath(buffer);
+                _lint.Schedule(buffer, path, settings.TypeDelayMs);
             }
         }
 
