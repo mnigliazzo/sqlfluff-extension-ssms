@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A VSIX extension (in-proc VSSDK package, targeting `net48`) that integrates [SQLFluff](https://sqlfluff.com) — a Python SQL linter/formatter — into SQL Server Management Studio 22. SSMS 22 is built on the Visual Studio 2022 shell (`Microsoft.VisualStudio.Shell.*` v18.x), so this is effectively a standard VS extension targeted at `Microsoft.VisualStudio.Ssms` instead of `Microsoft.VisualStudio.Community/Enterprise`.
+A VSIX extension (in-proc VSSDK package, targeting `net48`) that integrates [SQLFluff](https://sqlfluff.com) — a Python SQL linter/formatter — into SQL Server Management Studio 22. SSMS 22 is built on the Visual Studio 2026 platform (VS 18.x — e.g. SSMS 22.10 ships `Microsoft.VisualStudio.Shell.Framework` 18.10), so this is effectively a standard VS extension targeted at `Microsoft.VisualStudio.Ssms` instead of `Microsoft.VisualStudio.Community/Enterprise`. It still compiles against `Microsoft.VisualStudio.SDK` 17.14, the latest SDK metapackage on NuGet; there's no 18.x one, and 17.14 is what VS 2026 extensions target.
 
 SQLFluff itself is never bundled — it's a separate Python tool the user installs (`pip install sqlfluff`) and the extension shells out to.
 
@@ -61,13 +61,14 @@ Unlike `SqlFluff.Ssms.Tests`, this one uses a normal `ProjectReference` to `src/
 
 ## CI/CD
 
-Three GitHub Actions workflows:
+Four GitHub Actions workflows:
 
-- **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
-- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main`. `dotnet test` on both net8.0 test projects (`SqlFluff.Ssms.Tests`, `SqlFluff.Mcp.Tests`) — the latter also builds `SqlFluff.Mcp` itself via its `ProjectReference`, so there's no separate build check for it. No MSBuild/SSMS setup needed for either. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
+- **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main` and `beta`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
+- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main` and `beta`. `dotnet test` on both net8.0 test projects (`SqlFluff.Ssms.Tests`, `SqlFluff.Mcp.Tests`) — the latter also builds `SqlFluff.Mcp` itself via its `ProjectReference`, so there's no separate build check for it. No MSBuild/SSMS setup needed for either. Not wired into `release.yml` — the MCP server isn't attached to VSIX releases (see [Architecture](#architecture)).
 - **`.github/workflows/release.yml`** (`windows-latest`) — runs on push to `main` (and manually via `workflow_dispatch`, with a `bump` input to force `patch`/`minor`/`major`). Looks up the `Unreleased` milestone; if it has no closed issues, the run is a no-op (a push with nothing user-facing just doesn't cut a release). Otherwise it computes the next version itself — `minor` if any closed issue is labeled `enhancement`, else `patch` — from the latest published release tag, builds with that version patched into the *workspace copy* of `AssemblyInfo.cs`/`source.extension.vsixmanifest` (never committed — see [Release process](#release-process)), groups the closed issues by label into Added/Fixed/Changed/Other (see [Issues, Milestones & Releases](CONTRIBUTING.md#issues-milestones--releases) in CONTRIBUTING.md), publishes a GitHub Release tagged `vX.Y.Z` with the built VSIX attached, and rotates `Unreleased` to `vX.Y.Z` (closed) plus a fresh `Unreleased`. Needs `permissions: contents: write` (create the release/tag) and `issues: write` (read issues, rename/close/create milestones) at the job level — the default `GITHUB_TOKEN` is read-only otherwise and these calls fail with a 403.
+- **`.github/workflows/beta-release.yml`** (`windows-latest`) — runs on push to `beta` touching `src/**` (and manually). Publishes a GitHub **prerelease**; see [Beta channel](#beta-channel).
 
-Both workflows use `microsoft/setup-msbuild` to find the MSBuild bundled with the runner's Visual Studio 2022 — **do not** hardcode a path to SSMS's MSBuild in CI; SSMS is not installed on GitHub-hosted runners. That was tried and fails (`term not recognized`); only local dev machines that happen to have SSMS (and not full VS) need the SSMS MSBuild path + env var workaround described above.
+The Windows workflows use `microsoft/setup-msbuild` to find the MSBuild bundled with the runner's Visual Studio 2022 — **do not** hardcode a path to SSMS's MSBuild in CI; SSMS is not installed on GitHub-hosted runners. That was tried and fails (`term not recognized`); only local dev machines that happen to have SSMS (and not full VS) need the SSMS MSBuild path + env var workaround described above.
 
 ## Release process
 
@@ -77,6 +78,20 @@ Fully automatic, no maintainer version-bump step — that used to be manual (bum
 2. Merging to `main` re-runs the release workflow on every push. If the `Unreleased` milestone has closed issues, it computes the version, builds, publishes the GitHub Release, and rotates the milestone — see the `release.yml` bullet under [CI/CD](#cicd) above for the full mechanics.
 
 **`AssemblyInfo.cs` and `source.extension.vsixmanifest` in the repo do not carry the real version** — main's branch protection blocks even the release workflow's bot identity from pushing a version bump back to `main` without a human-reviewed PR, so the version only ever exists as a git tag / GitHub Release, computed fresh each run and patched into the CI workspace's copy of those two files just before building (never committed). Whatever's checked into the repo is cosmetically whatever a maintainer last set by hand; don't read it as the current version, and don't bother keeping it in sync — check the [latest release](../../releases/latest) instead. VSIXInstaller reads the version that matters (the one baked into that release's built VSIX) from `source.extension.vsixmanifest` at install time to decide upgrade-vs-"already installed", which is exactly the value the workflow patches in before that specific build.
+
+### Beta channel
+
+Riskier changes (e.g. platform migrations from #69) land on the `beta` branch first: feature branch → PR into `beta` → validate the prerelease in real SSMS → PR `beta` into `main`, which then releases normally.
+
+- **Version:** each push to `beta` that touches `src/**` publishes a prerelease versioned as the latest stable plus a 4th component — `1.15.3.1`, `1.15.3.2`, … — tagged `v1.15.3.1-beta`. That number is deliberate:
+  - It's above the stable it's based on, so VSIXInstaller installs it as an upgrade.
+  - It's below the next stable (`1.15.4`/`1.16.0`), so that stable installs over the beta.
+  - The extension compares only 3 version components (`Version.ToString(3)`), so a beta install never shows a false update notice.
+- **Isolation from stable:**
+  - The self-updater queries `releases/latest`, which excludes prereleases, so stable users never see a beta.
+  - `release.yml` only reads `^\d+\.\d+\.\d+$` tags, so beta tags don't affect stable versioning.
+  - `beta-release.yml` doesn't touch milestones. Issues are released by the stable workflow once `beta` reaches `main`.
+- **Downgrading:** VSIXInstaller won't install a lower version over a higher one, so going from a beta back to the stable it's based on requires uninstalling the beta first.
 
 ## Working conventions in this repo
 
