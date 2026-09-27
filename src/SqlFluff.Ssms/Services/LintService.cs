@@ -22,6 +22,16 @@ namespace SqlFluff.Ssms.Services
         {
             public CancellationTokenSource Lint;
             public CancellationTokenSource Debounce;
+
+            // The exact Error List key this buffer's violations were last published under. Close
+            // and re-publish clear by this recorded key rather than by a freshly re-resolved path,
+            // which can differ (moniker vs. on-disk path, before/after Save As) and would then miss.
+            public string PublishedPath;
+            public bool HasPublished;
+
+            // Set once the buffer's last editor view closes; any lint still in flight or scheduled
+            // for it afterwards is discarded instead of re-publishing into the Error List.
+            public bool Closed;
         }
 
         private readonly SqlFluffPackage _package;
@@ -41,6 +51,11 @@ namespace SqlFluff.Ssms.Services
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             BufferState state = _state.GetOrCreateValue(buffer);
+            if (state.Closed)
+            {
+                return;
+            }
+
             state.Debounce?.Cancel();
             var cts = new CancellationTokenSource();
             state.Debounce = cts;
@@ -67,6 +82,11 @@ namespace SqlFluff.Ssms.Services
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             BufferState state = _state.GetOrCreateValue(buffer);
+            if (state.Closed)
+            {
+                return;
+            }
+
             state.Debounce?.Cancel();
             state.Lint?.Cancel();
             var cts = new CancellationTokenSource();
@@ -571,6 +591,28 @@ namespace SqlFluff.Ssms.Services
             ClearDiagnostics(buffer, path);
         }
 
+        // The buffer's last editor view closed (or the RDT reported its last lock released):
+        // stop any pending/in-flight lint for it, drop its diagnostics under whatever key they were
+        // actually published with, and refuse further publishes until a view reopens it.
+        public void BufferClosed(ITextBuffer buffer, string path = null)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            BufferState state = _state.GetOrCreateValue(buffer);
+            state.Closed = true;
+            state.Debounce?.Cancel();
+            state.Lint?.Cancel();
+            ClearDiagnostics(buffer, path);
+        }
+
+        public void BufferOpened(ITextBuffer buffer)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (_state.TryGetValue(buffer, out BufferState state))
+            {
+                state.Closed = false;
+            }
+        }
+
         public void DocumentClosed(string path)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -587,7 +629,18 @@ namespace SqlFluff.Ssms.Services
 
             var set = new ViolationSet(snapshot, entries, settings.Severity);
             ViolationStore.Set(buffer, set);
+
+            // If this buffer previously published under a different key (e.g. moniker before a
+            // Save As), drop those entries so they don't linger as a second, stale copy.
+            BufferState state = _state.GetOrCreateValue(buffer);
+            if (state.HasPublished && !SameKey(state.PublishedPath, path))
+            {
+                _errors.Clear(state.PublishedPath);
+            }
+
             _errors.Publish(path, set, entry => NavigateTo(buffer, path, set, entry));
+            state.PublishedPath = path;
+            state.HasPublished = true;
             return entries.Count;
         }
 
@@ -595,7 +648,21 @@ namespace SqlFluff.Ssms.Services
         {
             ViolationStore.Clear(buffer);
             _errors.Clear(path);
+
+            if (_state.TryGetValue(buffer, out BufferState state) && state.HasPublished)
+            {
+                if (!SameKey(state.PublishedPath, path))
+                {
+                    _errors.Clear(state.PublishedPath);
+                }
+
+                state.PublishedPath = null;
+                state.HasPublished = false;
+            }
         }
+
+        private static bool SameKey(string a, string b) =>
+            string.Equals(a ?? string.Empty, b ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
         private void NavigateTo(ITextBuffer buffer, string path, ViolationSet set, ViolationEntry entry)
         {
