@@ -34,6 +34,9 @@
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\PyPiPackageInfoParser.cs" Link="Sources\PyPiPackageInfoParser.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\VersionComparer.cs" Link="Sources\VersionComparer.cs" />
     <Compile Include="..\..\src\SqlFluff.Ssms\Core\McpJsonMerger.cs" Link="Sources\McpJsonMerger.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\SettingsSchema.cs" Link="Sources\SettingsSchema.cs" />
+    <Compile Include="..\..\src\SqlFluff.Ssms\Core\SqlFluffSettings.cs" Link="Sources\SqlFluffSettings.cs" />
+    <None Include="..\..\src\SqlFluff.Ssms\Options\registration.json" Link="registration.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

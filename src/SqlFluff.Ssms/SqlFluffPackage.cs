@@ -28,11 +28,12 @@ namespace SqlFluff.Ssms
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [InstalledProductRegistration("SQLFluff for SSMS", "SQLFluff linter and formatter integration.", "1.0.0")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
-    [ProvideOptionPage(typeof(SqlFluffOptionsPage), "SQLFluff", "General", 0, 0, true)]
+    [ProvideSettingsManifest(PackageRelativeManifestFile = @"Options\registration.json")]
     [ProvideAutoLoad(VSConstants.UICONTEXT.ShellInitialized_string, PackageAutoLoadFlags.BackgroundLoad)]
     [Guid(PackageGuids.PackageString)]
     public sealed class SqlFluffPackage : AsyncPackage
     {
+        private ExtensionOptions _options;
         private ErrorListService _errors;
         private LintService _lint;
         private EditorServices _editor;
@@ -47,17 +48,31 @@ namespace SqlFluff.Ssms
         internal static SqlFluffPackage Instance { get; private set; }
 
         internal LintService LintService => _lint;
+
+        // Beta builds carry a 4th version component (see CLAUDE.md's Beta channel); show it, since
+        // update checks and the toolbar/MCP bookkeeping deliberately compare only the first three.
+        private string DisplayVersion
+        {
+            get
+            {
+                Version version = GetType().Assembly.GetName().Version;
+                return version.Revision > 0 ? version.ToString(4) + " (beta)" : version.ToString(3);
+            }
+        }
         internal EditorServices EditorServices => _editor;
 
         internal SqlFluffSettings GetSettings()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            return ((SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage))).ToSettings();
+            return _options.Read();
         }
 
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+
+            // First, before anything (including MEF components reaching in via Instance) reads settings.
+            _options = await ExtensionOptions.CreateAsync(this, cancellationToken);
             Instance = this;
 
             var componentModel = (IComponentModel)await GetServiceAsync(typeof(SComponentModel));
@@ -79,7 +94,7 @@ namespace SqlFluff.Ssms
                 AddCommand(commands, PackageIds.CmdFix, (s, e) => RunOnActiveDocument(EditorAction.Fix), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdFormat, (s, e) => RunOnActiveDocument(EditorAction.Format), requiresSql: true);
                 AddCommand(commands, PackageIds.CmdClear, (s, e) => ClearActiveDocument(), requiresSql: true);
-                AddCommand(commands, PackageIds.CmdOptions, (s, e) => ShowOptionPage(typeof(SqlFluffOptionsPage)), requiresSql: false);
+                AddCommand(commands, PackageIds.CmdOptions, (s, e) => OpenOptions(), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdCheckForUpdates, (s, e) => CheckForUpdates(userInitiated: true), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdInstallSqlFluffTool, (s, e) => CheckSqlFluffTool(userInitiated: true), requiresSql: false);
                 AddCommand(commands, PackageIds.CmdSetupMcpServer, (s, e) => CheckMcpServer(userInitiated: true), requiresSql: false);
@@ -97,7 +112,7 @@ namespace SqlFluff.Ssms
             EnsureToolbarVisibleOnce();
 
             // Also visible any time via Tools > Options > SQLFluff > Extension version.
-            OutputLog.Write("SQLFluff for SSMS v" + GetType().Assembly.GetName().Version.ToString(3) + " loaded.");
+            OutputLog.Write("SQLFluff for SSMS v" + DisplayVersion + " loaded.");
 
             // Non-blocking. Sequenced rather than independent fire-and-forget tasks: all three may
             // call OutputLog.SetStatus, and running them concurrently would let whichever finishes
@@ -153,9 +168,8 @@ namespace SqlFluff.Ssms
         private void EnsureToolbarVisibleOnce()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
             string currentVersion = GetType().Assembly.GetName().Version.ToString(3);
-            if (page.ToolbarShownForVersion == currentVersion)
+            if (_options.ToolbarShownForVersion == currentVersion)
             {
                 return;
             }
@@ -181,8 +195,7 @@ namespace SqlFluff.Ssms
                 return;
             }
 
-            page.ToolbarShownForVersion = currentVersion;
-            page.SaveSettingsToStorage();
+            _options.ToolbarShownForVersion = currentVersion;
         }
 
         private void CheckSqlFluffTool(bool userInitiated)
@@ -476,8 +489,7 @@ namespace SqlFluff.Ssms
                     return;
                 }
 
-                var page = (SqlFluffOptionsPage)GetDialogPage(typeof(SqlFluffOptionsPage));
-                if (!userInitiated && page.McpServerOfferedForVersion == latest.Version)
+                if (!userInitiated && _options.McpServerOfferedForVersion == latest.Version)
                 {
                     return;
                 }
@@ -498,8 +510,7 @@ namespace SqlFluff.Ssms
                 // silent retry.
                 if (result != (int)VSConstants.MessageBoxResult.IDYES)
                 {
-                    page.McpServerOfferedForVersion = latest.Version;
-                    page.SaveSettingsToStorage();
+                    _options.McpServerOfferedForVersion = latest.Version;
                     OutputLog.SetStatus("SQLFluff: MCP server not set up. Run SQLFluff > Set Up MCP Server for Copilot... any time.");
                     return;
                 }
@@ -608,6 +619,16 @@ namespace SqlFluff.Ssms
         // sqlfluff rule, and sqlfluff's docs don't know this extension exists.
         private const string SqlFluffDocumentationUrl = "https://docs.sqlfluff.com/en/stable/";
 
+        // Unified Settings has no documented API to open a specific category, so this opens
+        // Tools > Options and points the user at the SQLFluff section.
+        private void OpenOptions()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
+            dte?.ExecuteCommand("Tools.Options");
+            OutputLog.SetStatus("SQLFluff: search for \"SQLFluff\" in Tools > Options.");
+        }
+
         private void OpenHelp()
         {
             OpenUrl(DocumentationUrl);
@@ -706,7 +727,7 @@ namespace SqlFluff.Ssms
             {
                 if (userInitiated)
                 {
-                    OutputLog.SetStatus("SQLFluff: you're already up to date (v" + installedVersion + ").");
+                    OutputLog.SetStatus("SQLFluff: you're already up to date (v" + DisplayVersion + ").");
                 }
 
                 return;
