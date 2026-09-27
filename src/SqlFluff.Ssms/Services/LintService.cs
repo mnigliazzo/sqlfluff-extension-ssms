@@ -82,7 +82,13 @@ namespace SqlFluff.Ssms.Services
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             BufferState state = _state.GetOrCreateValue(buffer);
-            if (state.Closed)
+
+            // A user who can run Lint on a buffer has it open, whatever the close tracking says.
+            if (userInitiated)
+            {
+                state.Closed = false;
+            }
+            else if (state.Closed)
             {
                 return;
             }
@@ -237,6 +243,7 @@ namespace SqlFluff.Ssms.Services
         public async Task SuppressViolationAsync(ITextBuffer buffer, string path, ITextSnapshot violationSnapshot, Span violationSpan, string ruleCode)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            BufferOpened(buffer);
 
             if (!buffer.CheckEditAccess())
             {
@@ -435,6 +442,7 @@ namespace SqlFluff.Ssms.Services
             string verbCapitalized = mode == RewriteMode.Format ? "Format" : "Fix";
 
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            BufferOpened(buffer);
 
             if (!buffer.CheckEditAccess())
             {
@@ -591,17 +599,17 @@ namespace SqlFluff.Ssms.Services
             ClearDiagnostics(buffer, path);
         }
 
-        // The buffer's last editor view closed (or the RDT reported its last lock released):
-        // stop any pending/in-flight lint for it, drop its diagnostics under whatever key they were
-        // actually published with, and refuse further publishes until a view reopens it.
-        public void BufferClosed(ITextBuffer buffer, string path = null)
+        // The buffer's last editor view closed: stop any pending/in-flight lint for it, drop its
+        // diagnostics under whatever key they were actually published with, and refuse further
+        // automatic publishes until a view reopens it or the user runs a command on it.
+        public void BufferClosed(ITextBuffer buffer)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             BufferState state = _state.GetOrCreateValue(buffer);
             state.Closed = true;
             state.Debounce?.Cancel();
             state.Lint?.Cancel();
-            ClearDiagnostics(buffer, path);
+            ClearDiagnostics(buffer, path: null);
         }
 
         public void BufferOpened(ITextBuffer buffer)

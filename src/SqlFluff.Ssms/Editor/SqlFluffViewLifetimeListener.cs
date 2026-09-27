@@ -25,12 +25,10 @@ namespace SqlFluff.Ssms.Editor
 
         public void TextViewCreated(IWpfTextView textView)
         {
+            // Every view is counted, SQL or not: a buffer's content type can change while it's open
+            // (e.g. Save As .sql), so only counting views that looked like SQL when created could
+            // hit 0 while an uncounted view is still open. The SQL check happens at close instead.
             ITextBuffer buffer = textView.TextDataModel.DocumentBuffer;
-            if (!SqlBufferHeuristics.IsLikelySql(buffer, Documents))
-            {
-                return;
-            }
-
             ViewCount count = buffer.Properties.GetOrCreateSingletonProperty(typeof(ViewCount), () => new ViewCount());
             count.Value++;
             SqlFluffPackage.Instance?.LintService?.BufferOpened(buffer);
@@ -42,7 +40,10 @@ namespace SqlFluff.Ssms.Editor
                 if (count.Value <= 0)
                 {
                     count.Value = 0;
-                    SqlFluffPackage.Instance?.LintService?.BufferClosed(buffer);
+                    if (SqlBufferHeuristics.IsLikelySql(buffer, Documents))
+                    {
+                        SqlFluffPackage.Instance?.LintService?.BufferClosed(buffer);
+                    }
                 }
             };
         }
