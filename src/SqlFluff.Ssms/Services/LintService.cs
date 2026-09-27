@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
@@ -540,44 +538,22 @@ namespace SqlFluff.Ssms.Services
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-            var rdt = Package.GetGlobalService(typeof(SVsRunningDocumentTable)) as IVsRunningDocumentTable;
-            if (rdt == null)
+            var rdt = new RunningDocumentTable(ServiceProvider.GlobalProvider);
+            if (rdt.FindDocument(path) == null)
             {
+                OutputLog.Write("Auto-save: could not find '" + path + "' among the open documents.");
                 return false;
             }
 
-            IntPtr docDataPtr = IntPtr.Zero;
             try
             {
-                int hr = rdt.FindAndLockDocument(
-                    (uint)_VSRDTFLAGS.RDT_NoLock, path, out IVsHierarchy hierarchy, out uint itemId, out docDataPtr, out uint cookie);
-
-                if (ErrorHandler.Failed(hr))
-                {
-                    OutputLog.Write("Auto-save: could not find '" + path + "' in the running document table (hr=0x" + hr.ToString("X8") + ").");
-                    return false;
-                }
-
-                int saveHr = rdt.SaveDocuments((uint)__VSRDTSAVEOPTIONS.RDTSAVEOPT_SaveIfDirty, null, 0, cookie);
-                if (ErrorHandler.Failed(saveHr))
-                {
-                    OutputLog.Write("Auto-save failed for '" + path + "' (hr=0x" + saveHr.ToString("X8") + ").");
-                    return false;
-                }
-
+                rdt.SaveFileIfDirty(path);
                 return true;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {
                 OutputLog.Write("Auto-save failed for '" + path + "': " + ex.Message);
                 return false;
-            }
-            finally
-            {
-                if (docDataPtr != IntPtr.Zero)
-                {
-                    Marshal.Release(docDataPtr);
-                }
             }
         }
 

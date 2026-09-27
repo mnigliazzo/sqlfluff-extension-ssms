@@ -57,12 +57,12 @@ namespace SqlFluff.Ssms.Services
     internal sealed class FolderBatchService
     {
         private readonly SqlFluffPackage _package;
-        private readonly IVsRunningDocumentTable _rdt;
+        private readonly RunningDocumentTable _rdt;
         private readonly EditorServices _editor;
         private readonly LintService _lint;
         private readonly ErrorListService _errors;
 
-        public FolderBatchService(SqlFluffPackage package, IVsRunningDocumentTable rdt, EditorServices editor, LintService lint, ErrorListService errors)
+        public FolderBatchService(SqlFluffPackage package, RunningDocumentTable rdt, EditorServices editor, LintService lint, ErrorListService errors)
         {
             _package = package;
             _rdt = rdt;
