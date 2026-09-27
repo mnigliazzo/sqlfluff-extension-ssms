@@ -1,0 +1,111 @@
+name: Beta Release
+
+# Publishes a GitHub *prerelease* for every push to the beta branch that changes the extension's
+# source. Prereleases are invisible to the extension's own update check (it queries
+# releases/latest, which excludes them) and to release.yml's version math (it only reads
+# vX.Y.Z tags), so a beta only reaches whoever installs it by hand.
+on:
+  push:
+    branches: [ beta ]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+
+concurrency:
+  group: beta-release
+  cancel-in-progress: false
+
+jobs:
+  beta-release:
+    runs-on: windows-latest
+    if: github.ref == 'refs/heads/beta'
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    # Version = latest stable release + a 4th component (1.15.3 -> 1.15.3.1, 1.15.3.2, ...).
+    # That sorts above the stable it's based on (so VSIXInstaller treats it as an upgrade) and
+    # below the next stable 1.15.4/1.16.0 (so that installs over the beta). The extension compares
+    # only 3 components when checking for updates, so a beta install never sees a false update
+    # notice for the stable it's based on.
+    - name: Determine beta version
+      id: version
+      run: |
+        git fetch --tags --quiet
+        $stable = git tag --list "v*" |
+          ForEach-Object { $_.TrimStart('v') } |
+          Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+          ForEach-Object { [version]$_ } |
+          Sort-Object -Descending |
+          Select-Object -First 1
+        if (-not $stable) { $stable = [version]"0.0.0" }
+        $base = "$($stable.Major).$($stable.Minor).$($stable.Build)"
+
+        $previous = git tag --list "v$base.*-beta" |
+          ForEach-Object { if ($_ -match "^v$([regex]::Escape($base))\.(\d+)-beta$") { [int]$Matches[1] } } |
+          Sort-Object -Descending |
+          Select-Object -First 1
+        $next = if ($previous) { $previous + 1 } else { 1 }
+
+        $version = "$base.$next"
+        Write-Output "Beta $version (based on v$base)"
+        Write-Output "base=$base" >> $env:GITHUB_OUTPUT
+        Write-Output "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
+    # Only patches the workspace for this build, never committed - same as release.yml.
+    - name: Apply beta version to the build
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+
+        $asmPath = "src/SqlFluff.Ssms/Properties/AssemblyInfo.cs"
+        (Get-Content $asmPath) `
+          -replace 'AssemblyVersion\("[^"]+"\)', "AssemblyVersion(`"$version`")" `
+          -replace 'AssemblyFileVersion\("[^"]+"\)', "AssemblyFileVersion(`"$version`")" |
+          Set-Content $asmPath
+
+        $manifestPath = "src/SqlFluff.Ssms/source.extension.vsixmanifest"
+        $manifest = Get-Content $manifestPath -Raw
+        $manifest = $manifest -replace '(<Identity[^>]*\sVersion=")[0-9.]+(")', "`${1}$version`$2"
+        Set-Content -Path $manifestPath -Value $manifest -NoNewline
+      shell: pwsh
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Restore & Build
+      run: |
+        dotnet restore src/SqlFluff.Ssms/SqlFluff.Ssms.csproj
+        msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
+      shell: pwsh
+
+    - name: Create prerelease
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: v${{ steps.version.outputs.version }}-beta
+        name: Beta ${{ steps.version.outputs.version }}
+        target_commitish: ${{ github.sha }}
+        prerelease: true
+        make_latest: false
+        generate_release_notes: true
+        body: |
+          **Beta build** from the `beta` branch, based on v${{ steps.version.outputs.base }}. Not offered by the extension's automatic update check - install it by hand to try it.
+
+          **Install**: download `SqlFluff.Ssms.vsix` below, close SSMS, double-click the file, restart SSMS.
+
+          **Go back to stable**: VSIXInstaller won't downgrade over a newer version, so uninstall the beta first (Extensions > Manage Extensions), then install the stable `.vsix` from the [latest release](https://github.com/${{ github.repository }}/releases/latest). Installing the next stable release directly over the beta works without uninstalling.
+
+          Please report problems as GitHub issues and mention this beta version.
+        files: |
+          src/SqlFluff.Ssms/bin/Release/SqlFluff.Ssms.vsix
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
