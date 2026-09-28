@@ -27,6 +27,6 @@ The issue number the current branch is for (it's in the branch name: `feature/<n
    ```
    For a `chore/` branch with no issue, drop the `Closes #<n>` line and describe the change directly in the PR body instead.
 
-3. Make sure the `build` and `test` CI checks are expected to pass (see [docs/BUILD.md](../../../docs/BUILD.md)) before asking for review.
+3. Run `dotnet format --verify-no-changes` locally (see [docs/BUILD.md](../../../docs/BUILD.md#lint)) and make sure the `build`/`test` CI checks — which now include that same lint check — are expected to pass before asking for review.
 
 4. **Run `/code-review` on the diff before (or immediately after) opening the PR.** This is not optional — every PR out of this repo gets a code-review pass, whether by a human or by Claude Code, before it's considered ready. Fix what it finds, then push the fixes onto the same branch/PR.

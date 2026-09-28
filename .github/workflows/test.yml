@@ -20,5 +20,8 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
+    - name: Lint
+      run: dotnet format tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj --verify-no-changes
+
     - name: Test
       run: dotnet test tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj --configuration Release --logger "console;verbosity=normal"

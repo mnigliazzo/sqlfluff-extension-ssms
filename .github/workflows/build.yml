@@ -25,6 +25,10 @@ jobs:
       run: dotnet restore src/SqlFluff.Ssms/SqlFluff.Ssms.csproj
       shell: pwsh
 
+    - name: Lint
+      run: dotnet format src/SqlFluff.Ssms/SqlFluff.Ssms.csproj --verify-no-changes
+      shell: pwsh
+
     - name: Build
       run: msbuild src/SqlFluff.Ssms/SqlFluff.Ssms.csproj /p:Configuration=Release /v:minimal /nologo
       shell: pwsh

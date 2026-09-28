@@ -4,8 +4,8 @@
 
 Four GitHub Actions workflows:
 
-- **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main` and `beta`. Restores, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
-- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main` and `beta`. `dotnet test` on the net8.0 test project (`SqlFluff.Ssms.Tests`). No MSBuild/SSMS setup needed.
+- **`.github/workflows/build.yml`** (`windows-latest`) — runs on push/PR to `main` and `beta`. Restores, lints with `dotnet format --verify-no-changes`, builds, sanity-checks that the VSIX/DLL/pkgdef exist, uploads the VSIX as a build artifact. This is the required status check on `main`'s branch protection.
+- **`.github/workflows/test.yml`** (`ubuntu-latest`) — runs on push/PR to `main` and `beta`. Lints the test project with `dotnet format --verify-no-changes`, then `dotnet test` on the net8.0 test project (`SqlFluff.Ssms.Tests`). No MSBuild/SSMS setup needed for either.
 - **`.github/workflows/release.yml`** (`windows-latest`) — runs on push to `main` (and manually via `workflow_dispatch`, with a `bump` input to force `patch`/`minor`/`major`). See [Release mechanism](#release-mechanism-no-milestone) below.
 - **`.github/workflows/beta-release.yml`** (`windows-latest`) — runs on push to `beta` touching `src/**` (and manually). Publishes a GitHub **prerelease**; see [Beta channel](#beta-channel).
 

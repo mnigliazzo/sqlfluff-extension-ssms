@@ -82,12 +82,22 @@ dotnet test tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj
 
 No VS SDK or SSMS/Visual Studio MSBuild needed for this — it's a plain `net8.0` xUnit project. It only covers pure logic (argument quoting, JSON parsing) that doesn't touch the VS editor APIs; if you add new logic like that, add it to a standalone file in `Core/` and cover it with a test the same way.
 
+### Lint
+
+```bash
+dotnet format src/SqlFluff.Ssms/SqlFluff.Ssms.csproj --verify-no-changes
+dotnet format tests/SqlFluff.Ssms.Tests/SqlFluff.Ssms.Tests.csproj --verify-no-changes
+```
+
+CI runs both with `--verify-no-changes` as part of the `build` and `test` checks — drop the flag locally to auto-fix. See [docs/BUILD.md](docs/BUILD.md#lint).
+
 ## Code Style
 
 - C# 9+ features OK (.NET 4.8 base class library)
 - No external dependencies beyond VS SDK and SQLFluff
 - Keep it minimal — one fix per PR when possible
 - Comments only for the "why", not the "what"
+- Formatting is enforced by `dotnet format` in CI, not by convention — see [Lint](#lint) above
 
 ## Pull Request Process
 

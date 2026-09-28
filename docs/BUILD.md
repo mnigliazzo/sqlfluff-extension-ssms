@@ -19,6 +19,17 @@ The three env vars are required *only* when building with SSMS's bundled MSBuild
 
 Output: `src\SqlFluff.Ssms\bin\Release\SqlFluff.Ssms.vsix` (plus the loose `.dll`/`.pkgdef`).
 
+## Lint
+
+`dotnet format` (built into the SDK, no extra tooling) checks code style — CI runs it with `--verify-no-changes` in both `build.yml` (against `SqlFluff.Ssms.csproj`) and `test.yml` (against `SqlFluff.Ssms.Tests.csproj`), so a style violation fails the same required checks a build/test failure would. Run it locally before pushing:
+
+```powershell
+dotnet format src\SqlFluff.Ssms\SqlFluff.Ssms.csproj --verify-no-changes   # add without --verify-no-changes to auto-fix
+dotnet format tests\SqlFluff.Ssms.Tests\SqlFluff.Ssms.Tests.csproj --verify-no-changes
+```
+
+It works with a plain `dotnet restore` — no SSMS/VS MSBuild needed, unlike the actual build.
+
 **Always do a clean rebuild before treating a `.vsix` as release-ready** (`Remove-Item bin,obj -Recurse -Force` first). An incremental build has been observed to repackage a stale `extension.vsixmanifest` (wrong version number) even after the source manifest was edited. The `.claude/skills/release-build` skill runs this checklist for you.
 
 ## Tests
