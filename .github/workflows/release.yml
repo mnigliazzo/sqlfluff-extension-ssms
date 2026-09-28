@@ -54,21 +54,28 @@ jobs:
           Sort-Object -Descending
         $current = if ($tagVersions) { $tagVersions[0] } else { [version]"0.0.0" }
 
-        # Everything merged after the previous tag's commit date counts as "in this release".
-        # No previous tag (first ever release) means everything on main counts. DateTimeOffset,
-        # not DateTime, throughout -- %cI and the GraphQL mergedAt values both carry an explicit
-        # UTC offset, and comparing plain [datetime] values mixes Kind=Local (from a runner not
-        # in UTC) with Kind=Utc, which .NET compares by raw ticks and silently gets wrong.
-        $sinceDate = [datetimeoffset]"1970-01-01T00:00:00Z"
-        if ($tagVersions) {
-          $prevTag = "v$current"
-          $sinceDate = [datetimeoffset](git log -1 --format=%cI $prevTag)
-        }
+        # Everything merged into main since the previous tag counts as "in this release". No
+        # previous tag (first ever release) means everything on main counts. This has to be git
+        # ancestry, not a PR-mergedAt-timestamp comparison against the tag's commit date: that
+        # commit *is* the squash-merge commit of the last PR in the previous release, and a PR's
+        # mergedAt is always at or after its own merge commit's committer timestamp, so a
+        # timestamp filter re-includes that same PR into the next release almost every time
+        # (confirmed: v1.16.0's commit committer date and PR #83's mergedAt were one second
+        # apart, and #83 got pulled back into v1.17.0 alongside the PR that actually followed
+        # it — see #86). `git log <prevTag>..HEAD` has no such race: it lists exactly the
+        # commits made since that tag, and this repo's squash-merge commits always end in
+        # "(#<PR number>)".
+        $logRange = if ($tagVersions) { "v$current..HEAD" } else { "HEAD" }
+        $mergedPrNumbers = @(git log $logRange --format=%s |
+          ForEach-Object { if ($_ -match '\(#(\d+)\)$') { [int]$Matches[1] } } |
+          Where-Object { $_ } |
+          Sort-Object -Unique)
 
         # Page through every PR merged into main, since GraphQL's PullRequestOrderField has no
         # "merged at" option — a PR's updatedAt can move after it merged (a later comment, a
         # label change), so ordering by it and stopping early would risk missing one. Filtering
-        # client-side by mergedAt after fetching everything is the only reliable way.
+        # client-side by number (against $mergedPrNumbers above) after fetching everything is
+        # the reliable way.
         $query = @'
         query($owner: String!, $name: String!, $cursor: String) {
           repository(owner: $owner, name: $name) {
@@ -97,7 +104,7 @@ jobs:
           $cursor = $page.pageInfo.endCursor
         } while ($page.pageInfo.hasNextPage)
 
-        $mergedSinceLastTag = @($allPrs | Where-Object { [datetimeoffset]$_.mergedAt -gt $sinceDate })
+        $mergedSinceLastTag = @($allPrs | Where-Object { $mergedPrNumbers -contains $_.number })
 
         $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
         $hasWork = $mergedSinceLastTag.Count -gt 0
