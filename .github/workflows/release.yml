@@ -62,20 +62,20 @@ jobs:
         # timestamp filter re-includes that same PR into the next release almost every time
         # (confirmed: v1.16.0's commit committer date and PR #83's mergedAt were one second
         # apart, and #83 got pulled back into v1.17.0 alongside the PR that actually followed
-        # it — see #86). `git log <prevTag>..HEAD` has no such race: it lists exactly the
-        # commits made since that tag, and this repo's squash-merge commits always end in
-        # "(#<PR number>)".
+        # it — see #86). `git log <prevTag>..HEAD` has no such race: it lists exactly the commit
+        # SHAs made since that tag. Matching those against each PR's own mergeCommit.oid (from
+        # GraphQL, not by parsing commit subjects for a "(#N)" suffix) ties identity to git's
+        # actual record of what merged, not to a commit-title convention that a --subject
+        # override, an edited GitHub UI merge message, or a coincidental "(#N)"-shaped title
+        # could defeat or spoof.
         $logRange = if ($tagVersions) { "v$current..HEAD" } else { "HEAD" }
-        $mergedPrNumbers = @(git log $logRange --format=%s |
-          ForEach-Object { if ($_ -match '\(#(\d+)\)$') { [int]$Matches[1] } } |
-          Where-Object { $_ } |
-          Sort-Object -Unique)
+        $mergedShas = @(git log $logRange --format=%H)
 
         # Page through every PR merged into main, since GraphQL's PullRequestOrderField has no
         # "merged at" option — a PR's updatedAt can move after it merged (a later comment, a
         # label change), so ordering by it and stopping early would risk missing one. Filtering
-        # client-side by number (against $mergedPrNumbers above) after fetching everything is
-        # the reliable way.
+        # client-side by mergeCommit.oid (against $mergedShas above) after fetching everything
+        # is the reliable way.
         $query = @'
         query($owner: String!, $name: String!, $cursor: String) {
           repository(owner: $owner, name: $name) {
@@ -85,6 +85,7 @@ jobs:
                 number
                 title
                 mergedAt
+                mergeCommit { oid }
                 labels(first: 10) { nodes { name } }
                 closingIssuesReferences(first: 10) { nodes { number title labels(first: 10) { nodes { name } } } }
               }
@@ -104,7 +105,7 @@ jobs:
           $cursor = $page.pageInfo.endCursor
         } while ($page.pageInfo.hasNextPage)
 
-        $mergedSinceLastTag = @($allPrs | Where-Object { $mergedPrNumbers -contains $_.number })
+        $mergedSinceLastTag = @($allPrs | Where-Object { $mergedShas -contains $_.mergeCommit.oid })
 
         $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
         $hasWork = $mergedSinceLastTag.Count -gt 0
