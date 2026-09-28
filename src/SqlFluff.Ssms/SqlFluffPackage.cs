@@ -107,6 +107,8 @@ namespace SqlFluff.Ssms
                 AddFolderCommand(commands, PackageIds.CmdFormatFolder, FolderBatchAction.Format);
             }
 
+            EnsureToolbarVisibleOnce();
+
             _documentEvents = new DocumentEvents(this, _rdt, _editor, _lint);
             _rdtCookie = _rdt.Advise(_documentEvents);
             _documentEvents.AttachToOpenDocuments();
@@ -133,6 +135,38 @@ namespace SqlFluff.Ssms
                     await CheckSqlFluffAvailabilityAsync(userInitiated: false);
                 }
             }).Task.FileAndForget("sqlfluff/startup-checks");
+        }
+
+        // SSMS 22 ignores the toolbar's DefaultDocked flag (SqlFluffPackage.vsct), even after the
+        // ProvideMenuResource version bump that re-merges it, so the toolbar is forced visible here
+        // through DTE.CommandBars - there's no IVs* service for showing a specific toolbar. Once per
+        // extension version: a user who hides it isn't fought on every startup, but a release that
+        // changes the toolbar still gets one chance to surface it.
+        private void EnsureToolbarVisibleOnce()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string currentVersion = GetType().Assembly.GetName().Version.ToString();
+            if (_options.ToolbarShownForVersion == currentVersion)
+            {
+                return;
+            }
+
+            // Broad catch: this runs inline in InitializeAsync, where anything uncaught fails the
+            // whole package load, and SSMS's DTE/CommandBars isn't a surface to trust blindly.
+            try
+            {
+                var dte = (EnvDTE.DTE)GetService(typeof(SDTE));
+                var commandBars = (Microsoft.VisualStudio.CommandBars.CommandBars)dte.CommandBars;
+                commandBars["SQLFluff"].Visible = true;
+            }
+            catch (Exception ex)
+            {
+                // Not recorded as shown, so the next start tries again.
+                OutputLog.Write("Couldn't show the SQLFluff toolbar automatically - enable it via right-click on any toolbar > SQLFluff. (" + ex.Message + ")");
+                return;
+            }
+
+            _options.ToolbarShownForVersion = currentVersion;
         }
 
         private void CheckSqlFluffTool(bool userInitiated)
@@ -374,17 +408,21 @@ namespace SqlFluff.Ssms
         // sqlfluff rule, and sqlfluff's docs don't know this extension exists.
         private const string SqlFluffDocumentationUrl = "https://docs.sqlfluff.com/en/stable/";
 
-        // Unified Settings has no documented API to open a specific category, so this opens
-        // Tools > Options (the standard command) and points the user at the SQLFluff section.
+        // Root category moniker in Options/registration.json.
+        private const string OptionsCategoryMoniker = "sqlfluff";
+
+        // Unified Settings' Tools.Options handler treats a non-GUID string argument as a setting or
+        // category moniker and scrolls the settings window to it - the moniker counterpart of the
+        // page GUID Package.ShowOptionPage passes for a DialogPage.
         private void OpenOptions()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService commands)
             {
-                commands.GlobalInvoke(new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.ToolsOptions));
+                commands.GlobalInvoke(
+                    new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.ToolsOptions),
+                    OptionsCategoryMoniker);
             }
-
-            OutputLog.SetStatus("SQLFluff: search for \"SQLFluff\" in Tools > Options.");
         }
 
         private void OpenHelp()

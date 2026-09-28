@@ -31,6 +31,7 @@ namespace SqlFluff.Ssms.Options
         private const string LegacyCollection = @"DialogPage\SqlFluff.Ssms.Options.SqlFluffOptionsPage";
         private const string StateCollection = "SqlFluff.Ssms";
         private const string MigratedFlag = "LegacyOptionsMigrated";
+        private const string ToolbarShownForVersionName = "ToolbarShownForVersion";
 
         private readonly ISettingsManager _unified;
         private readonly WritableSettingsStore _store;
@@ -199,6 +200,13 @@ namespace SqlFluff.Ssms.Options
 
             EnsureStateCollection();
             _store.SetBoolean(StateCollection, MigratedFlag, true);
+        }
+
+        // Not a user option: the last extension version SqlFluffPackage forced the toolbar visible for.
+        public string ToolbarShownForVersion
+        {
+            get => GetState(ToolbarShownForVersionName);
+            set => SetState(ToolbarShownForVersionName, value);
         }
 
         private string GetState(string name)
