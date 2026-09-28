@@ -14,12 +14,15 @@ $repoRoot = $env:CLAUDE_PROJECT_DIR
 if (-not $repoRoot) { $repoRoot = git -C $input_json.cwd rev-parse --show-toplevel 2>$null }
 if (-not $repoRoot) { exit 0 }
 
-$repoRoot = $repoRoot -replace '\\', '/'
+$repoRoot = ($repoRoot -replace '\\', '/').TrimEnd('/') + '/'
 $normalizedPath = $filePath -replace '\\', '/'
 
 $relativePath = $normalizedPath
 if ($normalizedPath.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-  $relativePath = $normalizedPath.Substring($repoRoot.Length).TrimStart('/')
+  # $repoRoot always ends in '/' here, so this only matches at a real directory boundary --
+  # a sibling folder whose name happens to share the repo path as a string prefix (e.g.
+  # "sqlfluff-extension-ssms-scratch") can't be mistaken for a path inside the repo.
+  $relativePath = $normalizedPath.Substring($repoRoot.Length)
 }
 
 if ($relativePath -notmatch '^(src|tests)/') {

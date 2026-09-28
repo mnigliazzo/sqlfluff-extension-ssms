@@ -13,6 +13,8 @@ Pure maintenance/CI/tooling changes with no user-facing effect can skip this (sa
 
 `.claude/skills/start-issue` does steps 1–3 of this section for you.
 
+Issues also track backlog items that aren't being worked on right now — a deferred feature, a reverted change worth revisiting later — via `gh issue create`, independent of the branch/analysis-comment steps below (there's no branch yet, so nothing to start).
+
 ## 2. Branch naming encodes the issue number
 
 | Prefix | For | Example |

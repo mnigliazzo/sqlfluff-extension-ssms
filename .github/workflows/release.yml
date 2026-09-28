@@ -55,11 +55,14 @@ jobs:
         $current = if ($tagVersions) { $tagVersions[0] } else { [version]"0.0.0" }
 
         # Everything merged after the previous tag's commit date counts as "in this release".
-        # No previous tag (first ever release) means everything on main counts.
-        $sinceDate = [datetime]"1970-01-01T00:00:00Z"
+        # No previous tag (first ever release) means everything on main counts. DateTimeOffset,
+        # not DateTime, throughout -- %cI and the GraphQL mergedAt values both carry an explicit
+        # UTC offset, and comparing plain [datetime] values mixes Kind=Local (from a runner not
+        # in UTC) with Kind=Utc, which .NET compares by raw ticks and silently gets wrong.
+        $sinceDate = [datetimeoffset]"1970-01-01T00:00:00Z"
         if ($tagVersions) {
           $prevTag = "v$current"
-          $sinceDate = [datetime](git log -1 --format=%cI $prevTag)
+          $sinceDate = [datetimeoffset](git log -1 --format=%cI $prevTag)
         }
 
         # Page through every PR merged into main, since GraphQL's PullRequestOrderField has no
@@ -94,7 +97,7 @@ jobs:
           $cursor = $page.pageInfo.endCursor
         } while ($page.pageInfo.hasNextPage)
 
-        $mergedSinceLastTag = @($allPrs | Where-Object { [datetime]$_.mergedAt -gt $sinceDate })
+        $mergedSinceLastTag = @($allPrs | Where-Object { [datetimeoffset]$_.mergedAt -gt $sinceDate })
 
         $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
         $hasWork = $mergedSinceLastTag.Count -gt 0
@@ -106,7 +109,11 @@ jobs:
         }
 
         # One "item" per closed issue (using the issue's own title/labels), or the PR itself when
-        # it closes no issue (the chore/CI-only exception — see docs/WORKFLOW.md).
+        # it closes no issue (the chore/CI-only exception — see docs/WORKFLOW.md). Deduplicated
+        # by number: an issue reopened and closed again by a second PR in the same window would
+        # otherwise show up twice in the notes and get double-counted for the bump-type check.
+        # Issue and PR numbers share one sequence per repo, so a plain Number match can't
+        # confuse an issue with an unrelated PR.
         $items = foreach ($pr in $mergedSinceLastTag) {
           $closed = @($pr.closingIssuesReferences.nodes)
           if ($closed.Count -gt 0) {
@@ -117,6 +124,7 @@ jobs:
             [pscustomobject]@{ Number = $pr.number; Title = $pr.title; Labels = @($pr.labels.nodes.name) }
           }
         }
+        $items = @($items | Sort-Object Number -Unique)
 
         # Bump type: an explicit workflow_dispatch input wins; otherwise "enhancement" on any
         # item means minor, anything else (bug/chore/documentation/none) means patch. There's no

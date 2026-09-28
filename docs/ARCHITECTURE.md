@@ -45,7 +45,7 @@ Anything the user didn't ask for — the startup checks' "SQLFluff tool not foun
 
 ## Menus and toolbar
 
-Commands, menus and the SQLFluff toolbar are declared in `SqlFluffPackage.vsct`. **Bump the version in `[ProvideMenuResource("Menus.ctmenu", N)]` whenever the `.vsct` changes**: Visual Studio only re-merges an extension's command UI (including showing a new `DefaultDocked` toolbar or new buttons) when that number changes. It stayed at 1 for a long time, which is why new buttons didn't appear after upgrading and the toolbar was once forced visible through `EnvDTE`/`CommandBars` — that workaround is gone. A `.claude/hooks/check-vsct-version.ps1` hook now warns automatically if a `.vsct` edit doesn't bump this number — see [docs/WORKFLOW.md](WORKFLOW.md).
+Commands, menus and the SQLFluff toolbar are declared in `SqlFluffPackage.vsct`. **Bump the version in `[ProvideMenuResource("Menus.ctmenu", N)]` whenever the `.vsct` changes**: Visual Studio only re-merges an extension's command UI (including showing a new `DefaultDocked` toolbar or new buttons) when that number changes. It stayed at 1 for a long time, which is why new buttons didn't appear after upgrading and the toolbar was once forced visible through `EnvDTE`/`CommandBars` — that workaround is gone. A `.claude/hooks/check-vsct-version.ps1` hook now warns automatically if a `.vsct` edit doesn't bump this number — see `CLAUDE.md`'s "Active hooks and skills" section.
 
 ## Settings
 
